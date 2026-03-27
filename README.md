@@ -5,6 +5,10 @@ Move mob spawners in survival with Silk Touch.
 Ever wanted to move a mob spawner? With GetSpawners, you can now pick up and move monster spawners.
 When a player mines a spawner with a Silk Touch pickaxe, the spawner drops as an item and keeps its mob type.
 
+With this mod, you can give yourself a spawner containing any mob that has a spawn egg in Minecraft using a simple command.
+
+The mod has permissions support using LuckPerms.
+
 ---
 
 ## ✨ Features
