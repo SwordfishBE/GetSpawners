@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "getspawners",
+  "version": "${version}",
+  "name": "GetSpawners",
+  "description": "Move mob spawners with Silk Touch.",
+  "authors": [
+    "SwordfishBE"
+  ],
+"contact": {
+    "homepage": "https://github.com/SwordfishBE/GetSpawners",
+    "sources": "https://github.com/SwordfishBE/GetSpawners",
+    "issues": "https://github.com/SwordfishBE/GetSpawners/issues",
+    "email": "swordfishbe@locutus.net"
+  },
+  "license": "AGPL-3.0",
+  "icon": "assets/getspawners/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "net.getspawners.GetSpawnersMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.5",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
