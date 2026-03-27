@@ -10,32 +10,35 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.MobSpawnerBlockEntity;
-import net.minecraft.command.argument.EntityArgumentType;
-import net.minecraft.enchantment.EnchantmentHelper;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.entity.EntityType;
-import net.minecraft.entity.ExperienceOrbEntity;
-import net.minecraft.entity.ItemEntity;
-import net.minecraft.item.ItemPlacementContext;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.RegistryKeys;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Text;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.SpawnerBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,8 +48,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
-import static net.minecraft.server.command.CommandManager.argument;
-import static net.minecraft.server.command.CommandManager.literal;
+import static net.minecraft.commands.Commands.argument;
+import static net.minecraft.commands.Commands.literal;
 
 public class GetSpawnersMod implements ModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("GetSpawners");
@@ -87,8 +90,8 @@ public class GetSpawnersMod implements ModInitializer {
         }
     }
 
-    private static MutableText prefixed(String message) {
-        return Text.literal(PREFIX + message);
+    private static MutableComponent prefixed(String message) {
+        return Component.literal(PREFIX + message);
     }
 
     private static void registerCommands() {
@@ -102,7 +105,7 @@ public class GetSpawnersMod implements ModInitializer {
                             .executes(GetSpawnersMod::executeReload))
                     .then(literal("give")
                             .requires(source -> PermissionHelper.canUseCommand(source, "getspawners.give", config.useLuckPerms))
-                            .then(argument("player", EntityArgumentType.player())
+                            .then(argument("player", EntityArgument.player())
                                     .then(argument("type", StringArgumentType.word())
                                             .suggests(GetSpawnersMod::suggestTypes)
                                             .executes(context -> executeGive(context, 1))
@@ -114,44 +117,44 @@ public class GetSpawnersMod implements ModInitializer {
         });
     }
 
-    private static int executeTypes(CommandContext<ServerCommandSource> context) {
+    private static int executeTypes(CommandContext<CommandSourceStack> context) {
         List<String> keys = typeRegistry.keys();
-        context.getSource().sendFeedback(() -> prefixed("Available types (" + keys.size() + "): " + String.join(", ", keys)), false);
+        context.getSource().sendSuccess(() -> prefixed("Available types (" + keys.size() + "): " + String.join(", ", keys)), false);
         return 1;
     }
 
-    private static int executeReload(CommandContext<ServerCommandSource> context) {
+    private static int executeReload(CommandContext<CommandSourceStack> context) {
         config = GetSpawnersConfig.load();
         typeRegistry = SpawnerTypeRegistry.create();
-        context.getSource().sendFeedback(() -> prefixed("Config reloaded."), false);
-        LOGGER.info("{}Config reloaded by {}", PREFIX, context.getSource().getName());
+        context.getSource().sendSuccess(() -> prefixed("Config reloaded."), false);
+        LOGGER.info("{}Config reloaded by {}", PREFIX, context.getSource().getTextName());
         logLuckPermsMode();
         return 1;
     }
 
-    private static int executeGive(CommandContext<ServerCommandSource> context, int amount) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        ServerPlayerEntity target = EntityArgumentType.getPlayer(context, "player");
+    private static int executeGive(CommandContext<CommandSourceStack> context, int amount) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(context, "player");
         String typeInput = StringArgumentType.getString(context, "type");
 
         Optional<EntityType<?>> type = typeRegistry.resolve(typeInput);
         if (type.isEmpty()) {
-            context.getSource().sendError(prefixed("Unknown spawner type: " + typeInput));
+            context.getSource().sendFailure(prefixed("Unknown spawner type: " + typeInput));
             return 0;
         }
 
         ItemStack stack = SpawnerItemUtil.createSpawnerItem(type.get(), amount);
-        boolean inserted = target.getInventory().insertStack(stack);
-        if (!inserted) {
-            target.dropItem(stack, false);
+        boolean inserted = target.getInventory().add(stack);
+        if (!inserted && !stack.isEmpty()) {
+            target.drop(stack, false, false);
         }
 
-        String resolvedType = Registries.ENTITY_TYPE.getId(type.get()).toString();
-        context.getSource().sendFeedback(() -> prefixed("Gave " + amount + " spawner(s) of type " + resolvedType + " to " + target.getName().getString() + "."), true);
-        target.sendMessage(prefixed("You received " + amount + " spawner(s) of type " + resolvedType + ".").formatted(Formatting.GREEN));
+        String resolvedType = BuiltInRegistries.ENTITY_TYPE.getKey(type.get()).toString();
+        context.getSource().sendSuccess(() -> prefixed("Gave " + amount + " spawner(s) of type " + resolvedType + " to " + target.getName().getString() + "."), true);
+        target.sendSystemMessage(prefixed("You received " + amount + " spawner(s) of type " + resolvedType + ".").withStyle(ChatFormatting.GREEN));
         return 1;
     }
 
-    private static CompletableFuture<Suggestions> suggestTypes(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+    private static CompletableFuture<Suggestions> suggestTypes(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {
         for (String key : typeRegistry.keys()) {
             builder.suggest(key);
         }
@@ -161,11 +164,11 @@ public class GetSpawnersMod implements ModInitializer {
 
     private static void registerBreakListeners() {
         PlayerBlockBreakEvents.BEFORE.register((world, player, pos, state, blockEntity) -> {
-            if (!state.isOf(Blocks.SPAWNER)) {
+            if (state.getBlock() != Blocks.SPAWNER) {
                 return true;
             }
 
-            if (!(player instanceof ServerPlayerEntity serverPlayer)) {
+            if (!(player instanceof ServerPlayer serverPlayer)) {
                 return true;
             }
 
@@ -173,13 +176,12 @@ public class GetSpawnersMod implements ModInitializer {
 
             if (!PermissionHelper.canMineSpawner(serverPlayer, config.useLuckPerms)) {
                 BROKEN_SPAWNER_TYPES.remove(key);
-                serverPlayer.sendMessageToClient(prefixed("You do not have permission to mine spawners.").formatted(Formatting.RED), true);
+                serverPlayer.sendSystemMessage(prefixed("You do not have permission to mine spawners.").withStyle(ChatFormatting.RED), true);
                 return false;
             }
 
             boolean hasSilkTouch = hasSilkTouch(serverPlayer);
             if (!hasSilkTouch && !PermissionHelper.canBypassSilk(serverPlayer, config.useLuckPerms)) {
-                // No silk and no bypass: allow normal vanilla break (destroy + XP).
                 BROKEN_SPAWNER_TYPES.remove(key);
                 return true;
             }
@@ -190,7 +192,7 @@ public class GetSpawnersMod implements ModInitializer {
         });
 
         PlayerBlockBreakEvents.AFTER.register((world, player, pos, state, blockEntity) -> {
-            if (world.isClient() || !state.isOf(Blocks.SPAWNER) || !(player instanceof ServerPlayerEntity serverPlayer)) {
+            if (world.isClientSide() || state.getBlock() != Blocks.SPAWNER || !(player instanceof ServerPlayer serverPlayer)) {
                 return;
             }
 
@@ -212,46 +214,46 @@ public class GetSpawnersMod implements ModInitializer {
 
             EntityType<?> entityType = cachedType != null ? cachedType : readSpawnerType(world, pos, blockEntity).orElse(EntityType.PIG);
             normalizeSpawnerDrops(world, pos, entityType, true);
-            PENDING_SPAWNER_DROP_FIXES.add(new PendingSpawnerDropFix(world.getRegistryKey(), pos.toImmutable(), entityType, 8));
+            PENDING_SPAWNER_DROP_FIXES.add(new PendingSpawnerDropFix(world.dimension(), pos.immutable(), entityType, 8));
 
             removeNearbyExperienceOrbs(world, pos, 3.0D);
-            PENDING_XP_CLEANUPS.add(new PendingXpCleanup(world.getRegistryKey(), pos.toImmutable(), 12));
+            PENDING_XP_CLEANUPS.add(new PendingXpCleanup(world.dimension(), pos.immutable(), 12));
         });
     }
 
     private static void registerPlaceCheck() {
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
-            if (world.isClient()) {
-                return ActionResult.PASS;
+            if (world.isClientSide()) {
+                return InteractionResult.PASS;
             }
 
-            ItemStack stack = player.getStackInHand(hand);
-            if (!stack.isOf(Items.SPAWNER)) {
-                return ActionResult.PASS;
+            ItemStack stack = player.getItemInHand(hand);
+            if (stack.getItem() != Items.SPAWNER) {
+                return InteractionResult.PASS;
             }
 
-            if (!(player instanceof ServerPlayerEntity serverPlayer)) {
-                return ActionResult.PASS;
+            if (!(player instanceof ServerPlayer serverPlayer)) {
+                return InteractionResult.PASS;
             }
 
             if (!PermissionHelper.canMineSpawner(serverPlayer, config.useLuckPerms)) {
                 ItemStack refund = stack.copyWithCount(1);
                 if (!serverPlayer.isCreative() && !stack.isEmpty()) {
-                    stack.decrement(1);
+                    stack.shrink(1);
                 }
-                serverPlayer.dropItem(refund, false);
-                serverPlayer.sendMessageToClient(prefixed("You do not have permission to place spawners.").formatted(Formatting.RED), true);
-                return ActionResult.FAIL;
+                serverPlayer.drop(refund, false, false);
+                serverPlayer.sendSystemMessage(prefixed("You do not have permission to place spawners.").withStyle(ChatFormatting.RED), true);
+                return InteractionResult.FAIL;
             }
 
             Optional<EntityType<?>> itemType = SpawnerItemUtil.readEntityTypeFromSpawnerItem(stack);
             if (itemType.isPresent()) {
-                ItemPlacementContext placeContext = new ItemPlacementContext(player, hand, stack, hitResult);
-                BlockPos targetPos = placeContext.getBlockPos().toImmutable();
-                PENDING_PLACEMENTS.add(new PendingPlacement(world.getRegistryKey(), targetPos, itemType.get(), 4));
+                BlockPlaceContext placeContext = new BlockPlaceContext(player, hand, stack, hitResult);
+                BlockPos targetPos = placeContext.getClickedPos().immutable();
+                PENDING_PLACEMENTS.add(new PendingPlacement(world.dimension(), targetPos, itemType.get(), 4));
             }
 
-            return ActionResult.PASS;
+            return InteractionResult.PASS;
         });
     }
 
@@ -298,28 +300,29 @@ public class GetSpawnersMod implements ModInitializer {
     }
 
     private static boolean tryApplyPendingPlacement(MinecraftServer server, PendingPlacement pending) {
-        ServerWorld world = server.getWorld(pending.worldKey());
+        ServerLevel world = server.getLevel(pending.worldKey());
         if (world == null) {
             return true;
         }
 
-        if (!world.getBlockState(pending.pos()).isOf(Blocks.SPAWNER)) {
+        BlockState state = world.getBlockState(pending.pos());
+        if (state.getBlock() != Blocks.SPAWNER) {
             return false;
         }
 
         BlockEntity blockEntity = world.getBlockEntity(pending.pos());
-        if (!(blockEntity instanceof MobSpawnerBlockEntity spawner)) {
+        if (!(blockEntity instanceof SpawnerBlockEntity spawner)) {
             return false;
         }
 
-        spawner.setEntityType(pending.entityType(), world.getRandom());
-        spawner.markDirty();
-        world.getChunkManager().markForUpdate(pending.pos());
+        spawner.setEntityId(pending.entityType(), world.getRandom());
+        spawner.setChanged();
+        world.sendBlockUpdated(pending.pos(), state, state, 3);
         return true;
     }
 
     private static void tryRunSpawnerDropFix(MinecraftServer server, PendingSpawnerDropFix fix) {
-        ServerWorld world = server.getWorld(fix.worldKey());
+        ServerLevel world = server.getLevel(fix.worldKey());
         if (world == null) {
             return;
         }
@@ -328,7 +331,7 @@ public class GetSpawnersMod implements ModInitializer {
     }
 
     private static void tryRunXpCleanup(MinecraftServer server, PendingXpCleanup cleanup) {
-        ServerWorld world = server.getWorld(cleanup.worldKey());
+        ServerLevel world = server.getLevel(cleanup.worldKey());
         if (world == null) {
             return;
         }
@@ -336,22 +339,21 @@ public class GetSpawnersMod implements ModInitializer {
         removeNearbyExperienceOrbs(world, cleanup.pos(), 6.0D);
     }
 
-    private static boolean normalizeSpawnerDrops(World world, BlockPos pos, EntityType<?> entityType, boolean allowCreate) {
+    private static boolean normalizeSpawnerDrops(Level world, BlockPos pos, EntityType<?> entityType, boolean allowCreate) {
         ItemStack typedDrop = SpawnerItemUtil.createSpawnerItem(entityType, 1);
-        Box area = new Box(pos).expand(1.5D);
+        AABB area = new AABB(pos).inflate(1.5D);
 
         ItemEntity chosen = null;
-        for (ItemEntity itemEntity : world.getEntitiesByClass(ItemEntity.class, area, entity -> entity.getStack().isOf(Items.SPAWNER))) {
+        for (ItemEntity itemEntity : world.getEntitiesOfClass(ItemEntity.class, area, entity -> entity.getItem().getItem() == Items.SPAWNER)) {
             if (chosen == null) {
                 chosen = itemEntity;
             } else {
-                // Remove duplicate spawner drops at this break position.
                 itemEntity.discard();
             }
         }
 
         if (chosen != null) {
-            chosen.setStack(typedDrop);
+            chosen.setItem(typedDrop);
             return true;
         }
 
@@ -359,57 +361,58 @@ public class GetSpawnersMod implements ModInitializer {
             return false;
         }
 
-        net.minecraft.block.Block.dropStack(world, pos, typedDrop);
+        Block.popResource(world, pos, typedDrop);
         return true;
     }
-    private static Optional<EntityType<?>> readSpawnerType(World world, BlockPos pos, BlockEntity blockEntity) {
+
+    private static Optional<EntityType<?>> readSpawnerType(Level world, BlockPos pos, BlockEntity blockEntity) {
         if (blockEntity == null) {
             return Optional.empty();
         }
 
-        var nbt = blockEntity.createNbtWithIdentifyingData(world.getRegistryManager());
+        var nbt = blockEntity.saveWithFullMetadata(world.registryAccess());
         return SpawnerItemUtil.readEntityTypeFromBlockEntityNbt(nbt);
     }
 
-    private static boolean hasSilkTouch(ServerPlayerEntity player) {
-        ItemStack tool = player.getMainHandStack();
+    private static boolean hasSilkTouch(ServerPlayer player) {
+        ItemStack tool = player.getMainHandItem();
         if (tool.isEmpty()) {
             return false;
         }
 
-        var silkEntry = player.getEntityWorld().getRegistryManager().getOrThrow(RegistryKeys.ENCHANTMENT).getOrThrow(Enchantments.SILK_TOUCH);
-        return EnchantmentHelper.getLevel(silkEntry, tool) > 0;
+        var enchantRegistry = player.level().registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
+        var silkHolder = enchantRegistry.getOrThrow(Enchantments.SILK_TOUCH);
+        return EnchantmentHelper.getItemEnchantmentLevel(silkHolder, tool) > 0;
     }
 
-    private static void removeNearbyExperienceOrbs(World world, BlockPos pos, double radius) {
-        Box area = new Box(pos).expand(radius);
-        for (ExperienceOrbEntity orb : world.getEntitiesByClass(ExperienceOrbEntity.class, area, entity -> true)) {
+    private static void removeNearbyExperienceOrbs(Level world, BlockPos pos, double radius) {
+        AABB area = new AABB(pos).inflate(radius);
+        for (ExperienceOrb orb : world.getEntitiesOfClass(ExperienceOrb.class, area, entity -> true)) {
             orb.discard();
         }
     }
 
-    private record CachedSpawnerKey(RegistryKey<World> worldKey, BlockPos pos) {
-        private CachedSpawnerKey(World world, BlockPos pos) {
-            this(world.getRegistryKey(), pos.toImmutable());
+    private record CachedSpawnerKey(ResourceKey<Level> worldKey, BlockPos pos) {
+        private CachedSpawnerKey(Level world, BlockPos pos) {
+            this(world.dimension(), pos.immutable());
         }
     }
 
-    private record PendingPlacement(RegistryKey<World> worldKey, BlockPos pos, EntityType<?> entityType, int attemptsLeft) {
+    private record PendingPlacement(ResourceKey<Level> worldKey, BlockPos pos, EntityType<?> entityType, int attemptsLeft) {
         private PendingPlacement nextAttempt() {
             return new PendingPlacement(worldKey, pos, entityType, attemptsLeft - 1);
         }
     }
 
-    private record PendingSpawnerDropFix(RegistryKey<World> worldKey, BlockPos pos, EntityType<?> entityType, int attemptsLeft) {
+    private record PendingSpawnerDropFix(ResourceKey<Level> worldKey, BlockPos pos, EntityType<?> entityType, int attemptsLeft) {
         private PendingSpawnerDropFix nextAttempt() {
             return new PendingSpawnerDropFix(worldKey, pos, entityType, attemptsLeft - 1);
         }
     }
 
-    private record PendingXpCleanup(RegistryKey<World> worldKey, BlockPos pos, int attemptsLeft) {
+    private record PendingXpCleanup(ResourceKey<Level> worldKey, BlockPos pos, int attemptsLeft) {
         private PendingXpCleanup nextAttempt() {
             return new PendingXpCleanup(worldKey, pos, attemptsLeft - 1);
         }
     }
 }
-

@@ -1,8 +1,8 @@
 package net.getspawners;
 
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.server.level.ServerPlayer;
 
 import java.lang.reflect.Method;
 import java.util.UUID;
@@ -22,35 +22,35 @@ public final class PermissionHelper {
         return config.useLuckPerms && LUCKPERMS_AVAILABLE;
     }
 
-    public static boolean canUseCommand(ServerCommandSource source, String permission, boolean useLuckPerms) {
+    public static boolean canUseCommand(CommandSourceStack source, String permission, boolean useLuckPerms) {
         if (!useLuckPerms || !LUCKPERMS_AVAILABLE) {
-            return CommandManager.ADMINS_CHECK.allows(source.getPermissions());
+            return Commands.LEVEL_ADMINS.check(source.permissions());
         }
 
-        ServerPlayerEntity player = source.getPlayer();
+        ServerPlayer player = source.getPlayer();
         if (player == null) {
             return true;
         }
 
-        boolean fallback = CommandManager.ADMINS_CHECK.allows(source.getPermissions());
-        return checkLuckPerms(player.getUuid(), permission, fallback);
+        boolean fallback = Commands.LEVEL_ADMINS.check(source.permissions());
+        return checkLuckPerms(player.getUUID(), permission, fallback);
     }
 
-    public static boolean canMineSpawner(ServerPlayerEntity player, boolean useLuckPerms) {
+    public static boolean canMineSpawner(ServerPlayer player, boolean useLuckPerms) {
         if (!useLuckPerms || !LUCKPERMS_AVAILABLE) {
             return true;
         }
 
-        return checkLuckPerms(player.getUuid(), "getspawners.mine", false);
+        return checkLuckPerms(player.getUUID(), "getspawners.mine", false);
     }
 
-    public static boolean canBypassSilk(ServerPlayerEntity player, boolean useLuckPerms) {
-        boolean fallback = CommandManager.ADMINS_CHECK.allows(player.getPermissions());
+    public static boolean canBypassSilk(ServerPlayer player, boolean useLuckPerms) {
+        boolean fallback = Commands.LEVEL_ADMINS.check(player.permissions());
         if (!useLuckPerms || !LUCKPERMS_AVAILABLE) {
             return fallback;
         }
 
-        return checkLuckPerms(player.getUuid(), "getspawners.nosilk", fallback);
+        return checkLuckPerms(player.getUUID(), "getspawners.nosilk", fallback);
     }
 
     private static boolean isLuckPermsPresent() {

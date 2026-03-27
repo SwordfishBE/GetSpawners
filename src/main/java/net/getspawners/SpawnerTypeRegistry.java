@@ -1,9 +1,9 @@
 package net.getspawners;
 
-import net.minecraft.entity.EntityType;
-import net.minecraft.item.Item;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.item.Item;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -23,8 +23,8 @@ public final class SpawnerTypeRegistry {
     public static SpawnerTypeRegistry create() {
         Map<String, EntityType<?>> map = new LinkedHashMap<>();
 
-        for (Item item : Registries.ITEM) {
-            Identifier itemId = Registries.ITEM.getId(item);
+        for (Item item : BuiltInRegistries.ITEM) {
+            Identifier itemId = BuiltInRegistries.ITEM.getKey(item);
             if (itemId == null) {
                 continue;
             }
@@ -35,13 +35,13 @@ public final class SpawnerTypeRegistry {
             }
 
             String entityPath = path.substring(0, path.length() - "_spawn_egg".length());
-            Identifier entityId = Identifier.of(itemId.getNamespace(), entityPath);
+            Identifier entityId = Identifier.fromNamespaceAndPath(itemId.getNamespace(), entityPath);
 
-            if (!Registries.ENTITY_TYPE.containsId(entityId)) {
+            if (!BuiltInRegistries.ENTITY_TYPE.containsKey(entityId)) {
                 continue;
             }
 
-            EntityType<?> type = Registries.ENTITY_TYPE.get(entityId);
+            EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getValue(entityId);
             map.put(entityId.toString().toLowerCase(Locale.ROOT), type);
 
             if ("minecraft".equals(entityId.getNamespace())) {
@@ -64,7 +64,7 @@ public final class SpawnerTypeRegistry {
         List<String> keys = new ArrayList<>();
 
         for (Map.Entry<String, EntityType<?>> entry : byKey.entrySet()) {
-            Identifier entityId = Registries.ENTITY_TYPE.getId(entry.getValue());
+            Identifier entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entry.getValue());
             if (entityId != null && "minecraft".equals(entityId.getNamespace()) && entityId.getPath().equals(entry.getKey())) {
                 keys.add(entry.getKey());
             }
