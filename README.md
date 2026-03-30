@@ -34,15 +34,11 @@ Options:
 
 Behavior:
 
-- `useLuckPerms=false`
-- Everyone can mine/place spawners with Silk Touch.
+- `useLuckPerms=false`: Everyone can mine/place spawners with Silk Touch.
 - `noSilkTouchSpawners=false`: Without Silk Touch, spawners break with normal vanilla behavior (destroyed + XP).
 - `noSilkTouchSpawners=true`: Bypass the Silk Touch requirement for everyone.
-- Admin commands are OP-only.
-
-- `useLuckPerms=true`
-- Permission nodes are checked with LuckPerms.
-- `getspawners.nosilk` controls the Silk Touch bypass.
+- `useLuckPerms=true`: Permission nodes are checked with LuckPerms.
+  - `getspawners.nosilk` controls the Silk Touch bypass.
 - If LuckPerms is not installed, GetSpawners automatically falls back to the non-LuckPerms config behavior and logs a warning.
 
 Example config:
