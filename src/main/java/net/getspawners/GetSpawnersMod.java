@@ -7,6 +7,7 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
@@ -25,7 +26,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -39,6 +39,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.SpawnerBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,12 +53,12 @@ import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
 public class GetSpawnersMod implements ModInitializer {
-    private static final Logger LOGGER = LoggerFactory.getLogger("GetSpawners");
+    public static final Logger LOGGER = LoggerFactory.getLogger("GetSpawners");
     private static final String PREFIX = "[GetSpawners] ";
 
     private static final ConcurrentHashMap<CachedSpawnerKey, EntityType<?>> BROKEN_SPAWNER_TYPES = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<CachedSpawnerKey, Boolean> SUPPRESSED_XP_BREAKS = new ConcurrentHashMap<>();
     private static final ConcurrentLinkedQueue<PendingPlacement> PENDING_PLACEMENTS = new ConcurrentLinkedQueue<>();
-    private static final ConcurrentLinkedQueue<PendingXpCleanup> PENDING_XP_CLEANUPS = new ConcurrentLinkedQueue<>();
     private static final ConcurrentLinkedQueue<PendingSpawnerDropFix> PENDING_SPAWNER_DROP_FIXES = new ConcurrentLinkedQueue<>();
 
     private static GetSpawnersConfig config;
@@ -67,26 +68,29 @@ public class GetSpawnersMod implements ModInitializer {
     public void onInitialize() {
         config = GetSpawnersConfig.load();
         typeRegistry = SpawnerTypeRegistry.create();
+        PermissionHelper.refreshState(config);
 
         registerCommands();
         registerBreakListeners();
         registerPlaceCheck();
         registerTickProcessors();
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> ModrinthUpdateChecker.checkOnceAsync());
 
-        LOGGER.info("{}Mod initialized. useLuckPerms={}", PREFIX, config.useLuckPerms);
+        LOGGER.info("{}Mod initialized. useLuckPerms={}, noSilkTouchSpawners={}",
+                PREFIX, config.useLuckPerms, config.noSilkTouchSpawners);
         logLuckPermsMode();
     }
 
     private static void logLuckPermsMode() {
         if (config.useLuckPerms && !PermissionHelper.isLuckPermsAvailable()) {
-            LOGGER.warn("{}useLuckPerms is true, but LuckPerms is not installed. Falling back to non-LuckPerms behavior.", PREFIX);
+            LOGGER.warn("{}useLuckPerms is true, but LuckPerms is not installed. Falling back to config-based behavior.", PREFIX);
             return;
         }
 
         if (PermissionHelper.isUsingLuckPerms(config)) {
             LOGGER.info("{}LuckPerms permission mode enabled.", PREFIX);
         } else {
-            LOGGER.info("{}Non-LuckPerms permission mode enabled.", PREFIX);
+            LOGGER.info("{}Non-LuckPerms permission mode enabled. noSilkTouchSpawners={}", PREFIX, config.noSilkTouchSpawners);
         }
     }
 
@@ -126,6 +130,7 @@ public class GetSpawnersMod implements ModInitializer {
     private static int executeReload(CommandContext<CommandSourceStack> context) {
         config = GetSpawnersConfig.load();
         typeRegistry = SpawnerTypeRegistry.create();
+        PermissionHelper.refreshState(config);
         context.getSource().sendSuccess(() -> prefixed("Config reloaded."), false);
         LOGGER.info("{}Config reloaded by {}", PREFIX, context.getSource().getTextName());
         logLuckPermsMode();
@@ -181,13 +186,15 @@ public class GetSpawnersMod implements ModInitializer {
             }
 
             boolean hasSilkTouch = hasSilkTouch(serverPlayer);
-            if (!hasSilkTouch && !PermissionHelper.canBypassSilk(serverPlayer, config.useLuckPerms)) {
+            if (!hasSilkTouch && !PermissionHelper.canBypassSilk(serverPlayer, config)) {
                 BROKEN_SPAWNER_TYPES.remove(key);
+                SUPPRESSED_XP_BREAKS.remove(key);
                 return true;
             }
 
             EntityType<?> entityType = readSpawnerType(world, pos, blockEntity).orElse(EntityType.PIG);
             BROKEN_SPAWNER_TYPES.put(key, entityType);
+            SUPPRESSED_XP_BREAKS.put(key, Boolean.TRUE);
             return true;
         });
 
@@ -200,6 +207,7 @@ public class GetSpawnersMod implements ModInitializer {
             EntityType<?> cachedType = BROKEN_SPAWNER_TYPES.remove(key);
 
             if (serverPlayer.isCreative()) {
+                SUPPRESSED_XP_BREAKS.remove(key);
                 return;
             }
 
@@ -208,16 +216,12 @@ public class GetSpawnersMod implements ModInitializer {
             }
 
             boolean hasSilkTouch = hasSilkTouch(serverPlayer);
-            if (!hasSilkTouch && !PermissionHelper.canBypassSilk(serverPlayer, config.useLuckPerms)) {
+            if (!hasSilkTouch && !PermissionHelper.canBypassSilk(serverPlayer, config)) {
                 return;
             }
 
             EntityType<?> entityType = cachedType != null ? cachedType : readSpawnerType(world, pos, blockEntity).orElse(EntityType.PIG);
-            normalizeSpawnerDrops(world, pos, entityType, true);
             PENDING_SPAWNER_DROP_FIXES.add(new PendingSpawnerDropFix(world.dimension(), pos.immutable(), entityType, 8));
-
-            removeNearbyExperienceOrbs(world, pos, 3.0D);
-            PENDING_XP_CLEANUPS.add(new PendingXpCleanup(world.dimension(), pos.immutable(), 12));
         });
     }
 
@@ -278,24 +282,11 @@ public class GetSpawnersMod implements ModInitializer {
                     break;
                 }
 
-                tryRunSpawnerDropFix(server, fix);
-                if (fix.attemptsLeft() > 0) {
+                if (!tryRunSpawnerDropFix(server, fix) && fix.attemptsLeft() > 0) {
                     PENDING_SPAWNER_DROP_FIXES.add(fix.nextAttempt());
                 }
             }
 
-            int maxXpProcess = Math.min(PENDING_XP_CLEANUPS.size(), 128);
-            for (int i = 0; i < maxXpProcess; i++) {
-                PendingXpCleanup cleanup = PENDING_XP_CLEANUPS.poll();
-                if (cleanup == null) {
-                    break;
-                }
-
-                tryRunXpCleanup(server, cleanup);
-                if (cleanup.attemptsLeft() > 0) {
-                    PENDING_XP_CLEANUPS.add(cleanup.nextAttempt());
-                }
-            }
         });
     }
 
@@ -321,39 +312,43 @@ public class GetSpawnersMod implements ModInitializer {
         return true;
     }
 
-    private static void tryRunSpawnerDropFix(MinecraftServer server, PendingSpawnerDropFix fix) {
+    private static boolean tryRunSpawnerDropFix(MinecraftServer server, PendingSpawnerDropFix fix) {
         ServerLevel world = server.getLevel(fix.worldKey());
         if (world == null) {
-            return;
+            return true;
         }
 
-        normalizeSpawnerDrops(world, fix.pos(), fix.entityType(), false);
+        return normalizeSpawnerDrops(world, fix.pos(), fix.entityType(), fix.attemptsLeft() == 0);
     }
 
-    private static void tryRunXpCleanup(MinecraftServer server, PendingXpCleanup cleanup) {
-        ServerLevel world = server.getLevel(cleanup.worldKey());
-        if (world == null) {
-            return;
-        }
-
-        removeNearbyExperienceOrbs(world, cleanup.pos(), 6.0D);
+    public static boolean shouldSuppressExperience(ServerLevel world, BlockPos pos) {
+        return SUPPRESSED_XP_BREAKS.remove(new CachedSpawnerKey(world, pos)) != null;
     }
 
     private static boolean normalizeSpawnerDrops(Level world, BlockPos pos, EntityType<?> entityType, boolean allowCreate) {
         ItemStack typedDrop = SpawnerItemUtil.createSpawnerItem(entityType, 1);
-        AABB area = new AABB(pos).inflate(1.5D);
+        Vec3 center = Vec3.atCenterOf(pos);
+        AABB area = AABB.ofSize(center, 0.9D, 0.9D, 0.9D);
 
-        ItemEntity chosen = null;
-        for (ItemEntity itemEntity : world.getEntitiesOfClass(ItemEntity.class, area, entity -> entity.getItem().getItem() == Items.SPAWNER)) {
-            if (chosen == null) {
-                chosen = itemEntity;
-            } else {
-                itemEntity.discard();
+        ItemEntity plainDrop = null;
+        for (ItemEntity itemEntity : world.getEntitiesOfClass(
+                ItemEntity.class,
+                area,
+                entity -> entity.position().distanceToSqr(center) <= 0.25D)) {
+            ItemStack stack = itemEntity.getItem();
+
+            if (SpawnerItemUtil.isSpawnerItemOfType(stack, entityType)) {
+                return true;
+            }
+
+            if (SpawnerItemUtil.isPlainSpawnerDrop(stack) && plainDrop == null) {
+                plainDrop = itemEntity;
             }
         }
 
-        if (chosen != null) {
-            chosen.setItem(typedDrop);
+        if (plainDrop != null) {
+            ItemStack existing = plainDrop.getItem();
+            plainDrop.setItem(typedDrop.copyWithCount(existing.getCount()));
             return true;
         }
 
@@ -385,13 +380,6 @@ public class GetSpawnersMod implements ModInitializer {
         return EnchantmentHelper.getItemEnchantmentLevel(silkHolder, tool) > 0;
     }
 
-    private static void removeNearbyExperienceOrbs(Level world, BlockPos pos, double radius) {
-        AABB area = new AABB(pos).inflate(radius);
-        for (ExperienceOrb orb : world.getEntitiesOfClass(ExperienceOrb.class, area, entity -> true)) {
-            orb.discard();
-        }
-    }
-
     private record CachedSpawnerKey(ResourceKey<Level> worldKey, BlockPos pos) {
         private CachedSpawnerKey(Level world, BlockPos pos) {
             this(world.dimension(), pos.immutable());
@@ -410,9 +398,4 @@ public class GetSpawnersMod implements ModInitializer {
         }
     }
 
-    private record PendingXpCleanup(ResourceKey<Level> worldKey, BlockPos pos, int attemptsLeft) {
-        private PendingXpCleanup nextAttempt() {
-            return new PendingXpCleanup(worldKey, pos, attemptsLeft - 1);
-        }
-    }
 }

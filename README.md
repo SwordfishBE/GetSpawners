@@ -7,7 +7,7 @@ When a player mines a spawner with a Silk Touch pickaxe, the spawner drops as an
 
 With this mod, you can give yourself a spawner containing any mob that has a spawn egg in Minecraft using a simple command.
 
-The mod has permissions support using LuckPerms.
+The mod has optional permissions support using LuckPerms.
 
 ---
 
@@ -27,20 +27,32 @@ Config path:
 
 - `config/getspawners.json`
 
-Option:
+Options:
 
 - `useLuckPerms` (default: `false`)
+- `noSilkTouchSpawners` (default: `false`)
 
 Behavior:
 
 - `useLuckPerms=false`
 - Everyone can mine/place spawners with Silk Touch.
-- Without Silk Touch, spawners break with normal vanilla behavior (destroyed + XP).
+- `noSilkTouchSpawners=false`: Without Silk Touch, spawners break with normal vanilla behavior (destroyed + XP).
+- `noSilkTouchSpawners=true`: Bypass the Silk Touch requirement for everyone.
 - Admin commands are OP-only.
 
 - `useLuckPerms=true`
 - Permission nodes are checked with LuckPerms.
-- If LuckPerms is not installed, GetSpawners automatically falls back to non-LuckPerms behavior and logs a warning.
+- `getspawners.nosilk` controls the Silk Touch bypass.
+- If LuckPerms is not installed, GetSpawners automatically falls back to the non-LuckPerms config behavior and logs a warning.
+
+Example config:
+
+```json
+{
+  "useLuckPerms": false,
+  "noSilkTouchSpawners": false
+}
+```
 
 ---
 
@@ -69,6 +81,7 @@ Notes:
 
 This mod runs fully server-side. Clients do not need to install the mod.
 Also works in single-player (without LuckPerms support).
+Without LuckPerms, `/gs give` remains OP-only.
 
 ---
 
@@ -95,6 +108,8 @@ If `useLuckPerms` is enabled, assign nodes like this:
 /lp user <player> permission set getspawners.nosilk true
 /lp user <player> permission set getspawners.reload true
 ```
+
+If `useLuckPerms` is disabled, `getspawners.nosilk` is not used and `noSilkTouchSpawners` decides whether Silk Touch is required.
 
 LuckPerms docs:
 
@@ -128,5 +143,3 @@ chmod +x gradlew
 ## 📄 License
 
 Released under the [AGPL-3.0 License](LICENSE).
-
-

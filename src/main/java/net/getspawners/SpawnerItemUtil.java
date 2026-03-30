@@ -75,6 +75,17 @@ public final class SpawnerItemUtil {
         return Optional.of(BuiltInRegistries.ENTITY_TYPE.getValue(id));
     }
 
+    public static boolean isPlainSpawnerDrop(ItemStack stack) {
+        return stack.getItem() == Items.SPAWNER
+                && readEntityTypeFromSpawnerItem(stack).isEmpty();
+    }
+
+    public static boolean isSpawnerItemOfType(ItemStack stack, EntityType<?> entityType) {
+        return readEntityTypeFromSpawnerItem(stack)
+                .map(type -> type == entityType)
+                .orElse(false);
+    }
+
     private static CompoundTag createSpawnData(EntityType<?> entityType) {
         CompoundTag entity = new CompoundTag();
         Identifier entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entityType);
@@ -85,5 +96,3 @@ public final class SpawnerItemUtil {
         return spawnData;
     }
 }
-
-

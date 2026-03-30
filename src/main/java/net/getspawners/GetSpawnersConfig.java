@@ -14,6 +14,7 @@ public final class GetSpawnersConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public boolean useLuckPerms = false;
+    public boolean noSilkTouchSpawners = false;
 
     private static final Path CONFIG_PATH = FabricLoader.getInstance()
             .getConfigDir()

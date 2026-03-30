@@ -1,29 +1,33 @@
 package net.getspawners;
 
+import me.lucko.fabric.api.permissions.v0.Permissions;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
 
-import java.lang.reflect.Method;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-
 public final class PermissionHelper {
-    private static final boolean LUCKPERMS_AVAILABLE = isLuckPermsPresent();
+    private static boolean luckPermsInstalled;
+    private static boolean luckPermsActive;
 
     private PermissionHelper() {
     }
 
+    public static void refreshState(GetSpawnersConfig config) {
+        luckPermsInstalled = FabricLoader.getInstance().isModLoaded("luckperms");
+        luckPermsActive = config.useLuckPerms && luckPermsInstalled;
+    }
+
     public static boolean isLuckPermsAvailable() {
-        return LUCKPERMS_AVAILABLE;
+        return luckPermsInstalled;
     }
 
     public static boolean isUsingLuckPerms(GetSpawnersConfig config) {
-        return config.useLuckPerms && LUCKPERMS_AVAILABLE;
+        return config.useLuckPerms && luckPermsActive;
     }
 
     public static boolean canUseCommand(CommandSourceStack source, String permission, boolean useLuckPerms) {
-        if (!useLuckPerms || !LUCKPERMS_AVAILABLE) {
+        if (!useLuckPerms || !luckPermsActive) {
             return Commands.LEVEL_ADMINS.check(source.permissions());
         }
 
@@ -32,71 +36,22 @@ public final class PermissionHelper {
             return true;
         }
 
-        boolean fallback = Commands.LEVEL_ADMINS.check(source.permissions());
-        return checkLuckPerms(player.getUUID(), permission, fallback);
+        return Permissions.check(player, permission, Commands.LEVEL_ADMINS.check(source.permissions()));
     }
 
     public static boolean canMineSpawner(ServerPlayer player, boolean useLuckPerms) {
-        if (!useLuckPerms || !LUCKPERMS_AVAILABLE) {
+        if (!useLuckPerms || !luckPermsActive) {
             return true;
         }
 
-        return checkLuckPerms(player.getUUID(), "getspawners.mine", false);
+        return Permissions.check(player, "getspawners.mine", false);
     }
 
-    public static boolean canBypassSilk(ServerPlayer player, boolean useLuckPerms) {
-        boolean fallback = Commands.LEVEL_ADMINS.check(player.permissions());
-        if (!useLuckPerms || !LUCKPERMS_AVAILABLE) {
-            return fallback;
+    public static boolean canBypassSilk(ServerPlayer player, GetSpawnersConfig config) {
+        if (!config.useLuckPerms || !luckPermsActive) {
+            return config.noSilkTouchSpawners;
         }
 
-        return checkLuckPerms(player.getUUID(), "getspawners.nosilk", fallback);
-    }
-
-    private static boolean isLuckPermsPresent() {
-        try {
-            Class.forName("net.luckperms.api.LuckPermsProvider");
-            return true;
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private static boolean checkLuckPerms(UUID uuid, String node, boolean fallback) {
-        try {
-            Class<?> providerClass = Class.forName("net.luckperms.api.LuckPermsProvider");
-            Object luckPerms = providerClass.getMethod("get").invoke(null);
-
-            Object userManager = luckPerms.getClass().getMethod("getUserManager").invoke(luckPerms);
-            Method getUser = userManager.getClass().getMethod("getUser", UUID.class);
-            Object user = getUser.invoke(userManager, uuid);
-
-            if (user == null) {
-                Method loadUser = userManager.getClass().getMethod("loadUser", UUID.class);
-                @SuppressWarnings("unchecked")
-                CompletableFuture<Object> future = (CompletableFuture<Object>) loadUser.invoke(userManager, uuid);
-                user = future.join();
-            }
-
-            if (user == null) {
-                return fallback;
-            }
-
-            Object cachedData = user.getClass().getMethod("getCachedData").invoke(user);
-            Object permissionData = cachedData.getClass().getMethod("getPermissionData").invoke(cachedData);
-            Object tristate = permissionData.getClass().getMethod("checkPermission", String.class).invoke(permissionData, node);
-
-            String tristateName = tristate.toString();
-            if ("TRUE".equalsIgnoreCase(tristateName)) {
-                return true;
-            }
-            if ("FALSE".equalsIgnoreCase(tristateName)) {
-                return false;
-            }
-
-            return fallback;
-        } catch (Throwable ignored) {
-            return fallback;
-        }
+        return Permissions.check(player, "getspawners.nosilk", false);
     }
 }

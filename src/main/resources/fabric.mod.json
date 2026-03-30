@@ -21,11 +21,14 @@
       "net.getspawners.GetSpawnersMod"
     ]
   },
+  "mixins": [
+    "getspawners.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.18.5",
+    "fabric-permissions-api-v0": "*",
     "minecraft": "~26.1",
     "java": ">=25",
     "fabric-api": "*"
   }
 }
-
