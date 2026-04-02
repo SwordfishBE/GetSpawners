@@ -9,6 +9,11 @@ With this mod, you can give yourself a spawner containing any mob that has a spa
 
 The mod has optional permissions support using LuckPerms.
 
+[![GitHub Release](https://img.shields.io/github/v/release/SwordfishBE/GetSpawners?display_name=release&logo=github)](https://github.com/SwordfishBE/GetSpawners/releases)
+[![GitHub Downloads](https://img.shields.io/github/downloads/SwordfishBE/GetSpawners/total?logo=github)](https://github.com/SwordfishBE/GetSpawners/releases)
+[![Modrinth Downloads](https://img.shields.io/modrinth/dt/L330h09U?logo=modrinth&logoColor=white&label=Modrinth%20downloads)](https://modrinth.com/mod/getspawners)
+[![CurseForge Downloads](https://img.shields.io/curseforge/dt/1497073?logo=curseforge&logoColor=white&label=CurseForge%20downloads)](https://www.curseforge.com/minecraft/mc-mods/getspawners)
+
 ---
 
 ## ✨ Features
@@ -117,10 +122,16 @@ LuckPerms docs:
 
 ## 📦 Installation
 
-1. Install [Fabric Loader](https://fabricmc.net/use/) for Minecraft.
-2. Download [Fabric API](https://modrinth.com/mod/fabric-api) and place it in `mods/`.
-3. Download `getspawners-<version>.jar` and place it in `mods/`.
-4. Launch Minecraft. The config is created automatically on first run.
+| Platform | Link |
+|----------|------|
+| GitHub | [Releases](https://github.com/SwordfishBE/GetSpawners/releases) |
+| Modrinth | [GetSpawners](https://modrinth.com/mod/getspawners) |
+| CurseForge | [GetSpawners](https://www.curseforge.com/minecraft/mc-mods/getspawners) |
+
+1. Download the latest `GetSpawners` JAR from your preferred platform above.
+2. Download the latest compatible `Fabric API` version.
+3. Place both JARs in your server's `mods/` folder.
+4. Start Minecraft.
 
 ---
 
