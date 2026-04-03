@@ -32,6 +32,8 @@ Config path:
 
 - `config/getspawners.json`
 
+The file includes inline comments to explain every option.
+
 Options:
 
 - `useLuckPerms` (default: `false`)
@@ -50,7 +52,12 @@ Example config:
 
 ```json
 {
+  // When true, GetSpawners checks LuckPerms permission nodes if LuckPerms is installed.
+  // If false, GetSpawners uses the config-based behavior instead.
   "useLuckPerms": false,
+
+  // When true, everyone can bypass the Silk Touch requirement and still collect spawners.
+  // When false, mining a spawner without Silk Touch uses normal vanilla behavior.
   "noSilkTouchSpawners": false
 }
 ```
