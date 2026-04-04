@@ -94,6 +94,19 @@ public class GetSpawnersMod implements ModInitializer {
         }
     }
 
+    public static GetSpawnersConfig loadConfigForEditing() {
+        return config.copy();
+    }
+
+    public static void applyEditedConfig(GetSpawnersConfig editedConfig) {
+        config = editedConfig.copy();
+        config.save();
+        PermissionHelper.refreshState(config);
+        LOGGER.info("{}Config updated from client config screen. useLuckPerms={}, noSilkTouchSpawners={}",
+                PREFIX, config.useLuckPerms, config.noSilkTouchSpawners);
+        logLuckPermsMode();
+    }
+
     private static MutableComponent prefixed(String message) {
         return Component.literal(PREFIX + message);
     }

@@ -39,6 +39,8 @@ Options:
 - `useLuckPerms` (default: `false`)
 - `noSilkTouchSpawners` (default: `false`)
 
+If Mod Menu and Cloth Config are installed on the client, these settings can also be edited through an in-game config screen.
+
 Behavior:
 
 - `useLuckPerms=false`: Everyone can mine/place spawners with Silk Touch.

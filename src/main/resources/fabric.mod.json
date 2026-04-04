@@ -19,6 +19,9 @@
   "entrypoints": {
     "main": [
       "net.getspawners.GetSpawnersMod"
+    ],
+    "modmenu": [
+      "net.getspawners.GetSpawnersModMenuIntegration"
     ]
   },
   "mixins": [
@@ -30,5 +33,9 @@
     "minecraft": "~26.1.1",
     "java": ">=25",
     "fabric-api": "*"
+  },
+  "suggests": {
+    "modmenu": "*",
+    "cloth-config": "*"
   }
 }

@@ -18,6 +18,13 @@ public final class GetSpawnersConfig {
             .getConfigDir()
             .resolve("getspawners.json");
 
+    public GetSpawnersConfig copy() {
+        GetSpawnersConfig copy = new GetSpawnersConfig();
+        copy.useLuckPerms = useLuckPerms;
+        copy.noSilkTouchSpawners = noSilkTouchSpawners;
+        return copy;
+    }
+
     public static GetSpawnersConfig load() {
         if (Files.notExists(CONFIG_PATH)) {
             GetSpawnersConfig config = new GetSpawnersConfig();
