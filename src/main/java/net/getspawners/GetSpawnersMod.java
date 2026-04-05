@@ -11,6 +11,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -53,8 +54,17 @@ import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
 public class GetSpawnersMod implements ModInitializer {
+    public static final String MOD_ID = "getspawners";
+    public static final String MOD_NAME = FabricLoader.getInstance()
+            .getModContainer(MOD_ID)
+            .map(container -> container.getMetadata().getName())
+            .orElse("GetSpawners");
+    public static final String MOD_VERSION = FabricLoader.getInstance()
+            .getModContainer(MOD_ID)
+            .map(container -> container.getMetadata().getVersion().getFriendlyString())
+            .orElse("unknown");
     public static final Logger LOGGER = LoggerFactory.getLogger("GetSpawners");
-    private static final String PREFIX = "[GetSpawners] ";
+    public static final String LOG_PREFIX = "[" + MOD_NAME + "] ";
 
     private static final ConcurrentHashMap<CachedSpawnerKey, EntityType<?>> BROKEN_SPAWNER_TYPES = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<CachedSpawnerKey, Boolean> SUPPRESSED_XP_BREAKS = new ConcurrentHashMap<>();
@@ -76,21 +86,20 @@ public class GetSpawnersMod implements ModInitializer {
         registerTickProcessors();
         ServerLifecycleEvents.SERVER_STARTED.register(server -> ModrinthUpdateChecker.checkOnceAsync());
 
-        LOGGER.info("{}Mod initialized. useLuckPerms={}, noSilkTouchSpawners={}",
-                PREFIX, config.useLuckPerms, config.noSilkTouchSpawners);
+        LOGGER.info("{}Mod initialized. Version: {}", LOG_PREFIX, MOD_VERSION);
         logLuckPermsMode();
     }
 
     private static void logLuckPermsMode() {
         if (config.useLuckPerms && !PermissionHelper.isLuckPermsAvailable()) {
-            LOGGER.warn("{}useLuckPerms is true, but LuckPerms is not installed. Falling back to config-based behavior.", PREFIX);
+            LOGGER.warn("{}useLuckPerms is true, but LuckPerms is not installed. Falling back to config-based behavior.", LOG_PREFIX);
             return;
         }
 
         if (PermissionHelper.isUsingLuckPerms(config)) {
-            LOGGER.info("{}LuckPerms permission mode enabled.", PREFIX);
+            LOGGER.debug("{}LuckPerms permission mode enabled.", LOG_PREFIX);
         } else {
-            LOGGER.info("{}Non-LuckPerms permission mode enabled. noSilkTouchSpawners={}", PREFIX, config.noSilkTouchSpawners);
+            LOGGER.debug("{}Non-LuckPerms permission mode enabled. noSilkTouchSpawners={}", LOG_PREFIX, config.noSilkTouchSpawners);
         }
     }
 
@@ -102,13 +111,13 @@ public class GetSpawnersMod implements ModInitializer {
         config = editedConfig.copy();
         config.save();
         PermissionHelper.refreshState(config);
-        LOGGER.info("{}Config updated from client config screen. useLuckPerms={}, noSilkTouchSpawners={}",
-                PREFIX, config.useLuckPerms, config.noSilkTouchSpawners);
+        LOGGER.debug("{}Config updated from client config screen. useLuckPerms={}, noSilkTouchSpawners={}",
+                LOG_PREFIX, config.useLuckPerms, config.noSilkTouchSpawners);
         logLuckPermsMode();
     }
 
     private static MutableComponent prefixed(String message) {
-        return Component.literal(PREFIX + message);
+        return Component.literal(LOG_PREFIX + message);
     }
 
     private static void registerCommands() {
@@ -145,7 +154,8 @@ public class GetSpawnersMod implements ModInitializer {
         typeRegistry = SpawnerTypeRegistry.create();
         PermissionHelper.refreshState(config);
         context.getSource().sendSuccess(() -> prefixed("Config reloaded."), false);
-        LOGGER.info("{}Config reloaded by {}", PREFIX, context.getSource().getTextName());
+        LOGGER.info("{}Config reloaded via command.", LOG_PREFIX);
+        LOGGER.debug("{}Config reloaded by {}", LOG_PREFIX, context.getSource().getTextName());
         logLuckPermsMode();
         return 1;
     }
