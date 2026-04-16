@@ -30,6 +30,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.Level;
@@ -274,7 +275,8 @@ public class GetSpawnersMod implements ModInitializer {
 
             Optional<EntityType<?>> itemType = SpawnerItemUtil.readEntityTypeFromSpawnerItem(stack);
             if (itemType.isPresent()) {
-                BlockPos targetPos = hitResult.getBlockPos().immutable();
+                BlockPlaceContext placeContext = new BlockPlaceContext(player, hand, stack, hitResult);
+                BlockPos targetPos = placeContext.getClickedPos().immutable();
                 PENDING_PLACEMENTS.add(new PendingPlacement(world.dimension(), targetPos, itemType.get(), 4));
             }
 
