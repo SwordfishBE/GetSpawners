@@ -263,15 +263,19 @@ public class GetSpawnersMod implements ModInitializer {
             }
 
             if (!PermissionHelper.canMineSpawner(serverPlayer, config.useLuckPerms)) {
+                ItemStack refund = stack.copyWithCount(1);
+                if (!serverPlayer.isCreative() && !stack.isEmpty()) {
+                    stack.shrink(1);
+                }
+                serverPlayer.drop(refund, false, false);
                 serverPlayer.sendSystemMessage(prefixed("You do not have permission to place spawners.").withStyle(ChatFormatting.RED), true);
                 return InteractionResult.FAIL;
             }
 
             Optional<EntityType<?>> itemType = SpawnerItemUtil.readEntityTypeFromSpawnerItem(stack);
             if (itemType.isPresent()) {
-                BlockPos clickedPos = hitResult.getBlockPos().immutable();
-                BlockPos adjacentPos = clickedPos.relative(hitResult.getDirection()).immutable();
-                PENDING_PLACEMENTS.add(new PendingPlacement(world.dimension(), clickedPos, adjacentPos, itemType.get(), 4));
+                BlockPos targetPos = hitResult.getBlockPos().immutable();
+                PENDING_PLACEMENTS.add(new PendingPlacement(world.dimension(), targetPos, itemType.get(), 4));
             }
 
             return InteractionResult.PASS;
@@ -313,31 +317,19 @@ public class GetSpawnersMod implements ModInitializer {
             return true;
         }
 
-        if (tryApplyPendingPlacementAt(world, pending.primaryPos(), pending.entityType())) {
-            return true;
-        }
-
-        if (pending.secondaryPos().equals(pending.primaryPos())) {
-            return false;
-        }
-
-        return tryApplyPendingPlacementAt(world, pending.secondaryPos(), pending.entityType());
-    }
-
-    private static boolean tryApplyPendingPlacementAt(ServerLevel world, BlockPos pos, EntityType<?> entityType) {
-        BlockState state = world.getBlockState(pos);
+        BlockState state = world.getBlockState(pending.pos());
         if (state.getBlock() != Blocks.SPAWNER) {
             return false;
         }
 
-        BlockEntity blockEntity = world.getBlockEntity(pos);
+        BlockEntity blockEntity = world.getBlockEntity(pending.pos());
         if (!(blockEntity instanceof SpawnerBlockEntity spawner)) {
             return false;
         }
 
-        spawner.setEntityId(entityType, world.getRandom());
+        spawner.setEntityId(pending.entityType(), world.getRandom());
         spawner.setChanged();
-        world.sendBlockUpdated(pos, state, state, 3);
+        world.sendBlockUpdated(pending.pos(), state, state, 3);
         return true;
     }
 
@@ -357,24 +349,21 @@ public class GetSpawnersMod implements ModInitializer {
     private static boolean normalizeSpawnerDrops(Level world, BlockPos pos, EntityType<?> entityType, boolean allowCreate) {
         ItemStack typedDrop = SpawnerItemUtil.createSpawnerItem(entityType, 1);
         Vec3 center = Vec3.atCenterOf(pos);
-        AABB area = AABB.ofSize(center, 2.5D, 2.5D, 2.5D);
+        AABB area = AABB.ofSize(center, 0.9D, 0.9D, 0.9D);
 
         ItemEntity plainDrop = null;
-        double nearestPlainDropDistance = Double.MAX_VALUE;
         for (ItemEntity itemEntity : world.getEntitiesOfClass(
                 ItemEntity.class,
                 area,
-                entity -> entity.getItem().getItem() == Items.SPAWNER)) {
+                entity -> entity.position().distanceToSqr(center) <= 0.25D)) {
             ItemStack stack = itemEntity.getItem();
-            double distanceToCenter = itemEntity.position().distanceToSqr(center);
 
             if (SpawnerItemUtil.isSpawnerItemOfType(stack, entityType)) {
                 return true;
             }
 
-            if (SpawnerItemUtil.isPlainSpawnerDrop(stack) && distanceToCenter < nearestPlainDropDistance) {
+            if (SpawnerItemUtil.isPlainSpawnerDrop(stack) && plainDrop == null) {
                 plainDrop = itemEntity;
-                nearestPlainDropDistance = distanceToCenter;
             }
         }
 
@@ -418,9 +407,9 @@ public class GetSpawnersMod implements ModInitializer {
         }
     }
 
-    private record PendingPlacement(ResourceKey<Level> worldKey, BlockPos primaryPos, BlockPos secondaryPos, EntityType<?> entityType, int attemptsLeft) {
+    private record PendingPlacement(ResourceKey<Level> worldKey, BlockPos pos, EntityType<?> entityType, int attemptsLeft) {
         private PendingPlacement nextAttempt() {
-            return new PendingPlacement(worldKey, primaryPos, secondaryPos, entityType, attemptsLeft - 1);
+            return new PendingPlacement(worldKey, pos, entityType, attemptsLeft - 1);
         }
     }
 
