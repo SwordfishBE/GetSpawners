@@ -9,7 +9,5 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 @Mixin(Block.class)
 public interface BlockInvoker {
     @Invoker("popExperience")
-    static void getspawners$callPopExperience(ServerLevel level, BlockPos pos, int amount) {
-        throw new AssertionError();
-    }
+    void getspawners$callPopExperience(ServerLevel level, BlockPos pos, int amount);
 }

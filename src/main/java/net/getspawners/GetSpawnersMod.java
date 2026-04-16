@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import net.getspawners.mixin.BaseSpawnerAccessor;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -28,6 +29,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.BlockPlaceContext;
@@ -44,8 +47,13 @@ import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -65,14 +73,23 @@ public class GetSpawnersMod implements ModInitializer {
             .orElse("unknown");
     public static final Logger LOGGER = LoggerFactory.getLogger("GetSpawners");
     public static final String LOG_PREFIX = "[" + MOD_NAME + "] ";
+    private static final double SPAWNER_DROP_MATCH_RANGE = 1.25D;
+    private static final double SPAWNER_DROP_MATCH_RANGE_SQR = SPAWNER_DROP_MATCH_RANGE * SPAWNER_DROP_MATCH_RANGE;
+    private static final int SPAWNER_DROP_FIX_DEBUG_THRESHOLD = 8;
+    private static final long SPAWNER_DROP_FIX_DEBUG_COOLDOWN_TICKS = 40L;
 
     private static final ConcurrentHashMap<CachedSpawnerKey, EntityType<?>> BROKEN_SPAWNER_TYPES = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<CachedSpawnerKey, Boolean> DIRECT_TYPED_DROPS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<CachedSpawnerKey, EntityType<?>> KNOWN_SPAWNER_TYPES = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<CachedSpawnerKey, EntityType<?>> PENDING_PLACEMENT_TYPE_HINTS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<CachedSpawnerKey, Boolean> SUPPRESSED_XP_BREAKS = new ConcurrentHashMap<>();
     private static final ConcurrentLinkedQueue<PendingPlacement> PENDING_PLACEMENTS = new ConcurrentLinkedQueue<>();
     private static final ConcurrentLinkedQueue<PendingSpawnerDropFix> PENDING_SPAWNER_DROP_FIXES = new ConcurrentLinkedQueue<>();
 
     private static GetSpawnersConfig config;
     private static SpawnerTypeRegistry typeRegistry;
+    private static long lastSpawnerDropFixDebugTick = Long.MIN_VALUE;
+    private static boolean spawnerDropFixBacklogActive;
 
     @Override
     public void onInitialize() {
@@ -204,6 +221,7 @@ public class GetSpawnersMod implements ModInitializer {
 
             if (!PermissionHelper.canMineSpawner(serverPlayer, config.useLuckPerms)) {
                 BROKEN_SPAWNER_TYPES.remove(key);
+                DIRECT_TYPED_DROPS.remove(key);
                 serverPlayer.sendSystemMessage(prefixed("You do not have permission to mine spawners.").withStyle(ChatFormatting.RED), true);
                 return false;
             }
@@ -211,12 +229,21 @@ public class GetSpawnersMod implements ModInitializer {
             boolean hasSilkTouch = hasSilkTouch(serverPlayer);
             if (!hasSilkTouch && !PermissionHelper.canBypassSilk(serverPlayer, config)) {
                 BROKEN_SPAWNER_TYPES.remove(key);
+                DIRECT_TYPED_DROPS.remove(key);
                 SUPPRESSED_XP_BREAKS.remove(key);
                 return true;
             }
 
-            EntityType<?> entityType = readSpawnerType(world, pos, blockEntity).orElse(EntityType.PIG);
-            BROKEN_SPAWNER_TYPES.put(key, entityType);
+            Optional<EntityType<?>> entityType = resolveSpawnerType(world, pos, blockEntity, key, "before_break");
+            if (entityType.isEmpty()) {
+                BROKEN_SPAWNER_TYPES.remove(key);
+                DIRECT_TYPED_DROPS.remove(key);
+                SUPPRESSED_XP_BREAKS.remove(key);
+                return true;
+            }
+
+            BROKEN_SPAWNER_TYPES.put(key, entityType.get());
+            DIRECT_TYPED_DROPS.put(key, Boolean.TRUE);
             SUPPRESSED_XP_BREAKS.put(key, Boolean.TRUE);
             return true;
         });
@@ -228,6 +255,10 @@ public class GetSpawnersMod implements ModInitializer {
 
             CachedSpawnerKey key = new CachedSpawnerKey(world, pos);
             EntityType<?> cachedType = BROKEN_SPAWNER_TYPES.remove(key);
+            EntityType<?> knownType = KNOWN_SPAWNER_TYPES.remove(key);
+            if (DIRECT_TYPED_DROPS.remove(key) != null) {
+                return;
+            }
 
             if (serverPlayer.isCreative()) {
                 SUPPRESSED_XP_BREAKS.remove(key);
@@ -235,15 +266,23 @@ public class GetSpawnersMod implements ModInitializer {
             }
 
             if (!PermissionHelper.canMineSpawner(serverPlayer, config.useLuckPerms)) {
+                DIRECT_TYPED_DROPS.remove(key);
                 return;
             }
 
             boolean hasSilkTouch = hasSilkTouch(serverPlayer);
             if (!hasSilkTouch && !PermissionHelper.canBypassSilk(serverPlayer, config)) {
+                DIRECT_TYPED_DROPS.remove(key);
                 return;
             }
 
-            EntityType<?> entityType = cachedType != null ? cachedType : readSpawnerType(world, pos, blockEntity).orElse(EntityType.PIG);
+            EntityType<?> entityType = cachedType != null
+                    ? cachedType
+                    : resolveSpawnerType(world, pos, blockEntity, key, knownType, PENDING_PLACEMENT_TYPE_HINTS.get(key), "after_break").orElse(null);
+            if (entityType == null) {
+                return;
+            }
+
             PENDING_SPAWNER_DROP_FIXES.add(new PendingSpawnerDropFix(world.dimension(), pos.immutable(), entityType, 8));
         });
     }
@@ -264,20 +303,29 @@ public class GetSpawnersMod implements ModInitializer {
             }
 
             if (!PermissionHelper.canMineSpawner(serverPlayer, config.useLuckPerms)) {
-                ItemStack refund = stack.copyWithCount(1);
-                if (!serverPlayer.isCreative() && !stack.isEmpty()) {
-                    stack.shrink(1);
-                }
-                serverPlayer.drop(refund, false, false);
                 serverPlayer.sendSystemMessage(prefixed("You do not have permission to place spawners.").withStyle(ChatFormatting.RED), true);
                 return InteractionResult.FAIL;
             }
 
             Optional<EntityType<?>> itemType = SpawnerItemUtil.readEntityTypeFromSpawnerItem(stack);
             if (itemType.isPresent()) {
-                BlockPlaceContext placeContext = new BlockPlaceContext(player, hand, stack, hitResult);
-                BlockPos targetPos = placeContext.getClickedPos().immutable();
-                PENDING_PLACEMENTS.add(new PendingPlacement(world.dimension(), targetPos, itemType.get(), 4));
+                BlockPlaceContext placementContext = new BlockPlaceContext(player, hand, stack, hitResult);
+                BlockPlaceContext resolvedContext = placementContext;
+                if (stack.getItem() instanceof BlockItem blockItem) {
+                    BlockPlaceContext updatedContext = blockItem.updatePlacementContext(placementContext);
+                    if (updatedContext != null) {
+                        resolvedContext = updatedContext;
+                    }
+                }
+
+                BlockPos primaryPos = resolvedContext.getClickedPos().immutable();
+                BlockPos secondaryPos = primaryPos;
+                if (!resolvedContext.canPlace()) {
+                    secondaryPos = hitResult.getBlockPos().relative(hitResult.getDirection()).immutable();
+                }
+
+                cachePendingPlacementHints(world, primaryPos, secondaryPos, itemType.get());
+                PENDING_PLACEMENTS.add(new PendingPlacement(world.dimension(), primaryPos, secondaryPos, itemType.get(), 4));
             }
 
             return InteractionResult.PASS;
@@ -293,94 +341,246 @@ public class GetSpawnersMod implements ModInitializer {
                     break;
                 }
 
-                if (!tryApplyPendingPlacement(server, pending) && pending.attemptsLeft() > 0) {
-                    PENDING_PLACEMENTS.add(pending.nextAttempt());
+                if (!tryApplyPendingPlacement(server, pending)) {
+                    if (pending.attemptsLeft() > 0) {
+                        PENDING_PLACEMENTS.add(pending.nextAttempt());
+                    } else {
+                        clearPendingPlacementHints(pending);
+                    }
                 }
             }
 
             int maxSpawnerDropFixes = Math.min(PENDING_SPAWNER_DROP_FIXES.size(), 128);
-            for (int i = 0; i < maxSpawnerDropFixes; i++) {
-                PendingSpawnerDropFix fix = PENDING_SPAWNER_DROP_FIXES.poll();
-                if (fix == null) {
-                    break;
-                }
-
-                if (!tryRunSpawnerDropFix(server, fix) && fix.attemptsLeft() > 0) {
-                    PENDING_SPAWNER_DROP_FIXES.add(fix.nextAttempt());
-                }
-            }
+            logSpawnerDropFixBacklog(server, maxSpawnerDropFixes);
+            processSpawnerDropFixes(server, maxSpawnerDropFixes);
 
         });
+    }
+
+    private static void logSpawnerDropFixBacklog(MinecraftServer server, int pendingFixCount) {
+        ServerLevel overworld = server.overworld();
+        if (overworld == null) {
+            return;
+        }
+
+        long gameTime = overworld.getGameTime();
+        if (pendingFixCount >= SPAWNER_DROP_FIX_DEBUG_THRESHOLD) {
+            if (!spawnerDropFixBacklogActive || gameTime - lastSpawnerDropFixDebugTick >= SPAWNER_DROP_FIX_DEBUG_COOLDOWN_TICKS) {
+                LOGGER.debug("{}Pending spawner drop fixes queued: {}", LOG_PREFIX, pendingFixCount);
+                lastSpawnerDropFixDebugTick = gameTime;
+            }
+            spawnerDropFixBacklogActive = true;
+            return;
+        }
+
+        if (spawnerDropFixBacklogActive && pendingFixCount == 0) {
+            LOGGER.debug("{}Pending spawner drop fix backlog cleared.", LOG_PREFIX);
+            spawnerDropFixBacklogActive = false;
+            lastSpawnerDropFixDebugTick = gameTime;
+        }
     }
 
     private static boolean tryApplyPendingPlacement(MinecraftServer server, PendingPlacement pending) {
         ServerLevel world = server.getLevel(pending.worldKey());
         if (world == null) {
+            clearPendingPlacementHints(pending);
             return true;
         }
 
-        BlockState state = world.getBlockState(pending.pos());
+        if (tryApplyPendingPlacementAt(world, pending.primaryPos(), pending.entityType())) {
+            clearPendingPlacementHints(pending);
+            return true;
+        }
+
+        if (pending.secondaryPos().equals(pending.primaryPos())) {
+            return false;
+        }
+
+        if (tryApplyPendingPlacementAt(world, pending.secondaryPos(), pending.entityType())) {
+            clearPendingPlacementHints(pending);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static boolean tryApplyPendingPlacementAt(ServerLevel world, BlockPos pos, EntityType<?> entityType) {
+        BlockState state = world.getBlockState(pos);
         if (state.getBlock() != Blocks.SPAWNER) {
             return false;
         }
 
-        BlockEntity blockEntity = world.getBlockEntity(pending.pos());
+        BlockEntity blockEntity = world.getBlockEntity(pos);
         if (!(blockEntity instanceof SpawnerBlockEntity spawner)) {
             return false;
         }
 
-        spawner.setEntityId(pending.entityType(), world.getRandom());
+        spawner.setEntityId(entityType, world.getRandom());
         spawner.setChanged();
-        world.sendBlockUpdated(pending.pos(), state, state, 3);
+        world.sendBlockUpdated(pos, state, state, 3);
+        KNOWN_SPAWNER_TYPES.put(new CachedSpawnerKey(world, pos), entityType);
         return true;
-    }
-
-    private static boolean tryRunSpawnerDropFix(MinecraftServer server, PendingSpawnerDropFix fix) {
-        ServerLevel world = server.getLevel(fix.worldKey());
-        if (world == null) {
-            return true;
-        }
-
-        return normalizeSpawnerDrops(world, fix.pos(), fix.entityType(), fix.attemptsLeft() == 0);
     }
 
     public static boolean shouldSuppressExperience(ServerLevel world, BlockPos pos) {
         return SUPPRESSED_XP_BREAKS.remove(new CachedSpawnerKey(world, pos)) != null;
     }
 
-    private static boolean normalizeSpawnerDrops(Level world, BlockPos pos, EntityType<?> entityType, boolean allowCreate) {
-        ItemStack typedDrop = SpawnerItemUtil.createSpawnerItem(entityType, 1);
-        Vec3 center = Vec3.atCenterOf(pos);
-        AABB area = AABB.ofSize(center, 0.9D, 0.9D, 0.9D);
+    private static void processSpawnerDropFixes(MinecraftServer server, int maxSpawnerDropFixes) {
+        if (maxSpawnerDropFixes <= 0) {
+            return;
+        }
 
-        ItemEntity plainDrop = null;
-        for (ItemEntity itemEntity : world.getEntitiesOfClass(
+        List<PendingSpawnerDropFix> fixes = new ArrayList<>(maxSpawnerDropFixes);
+        for (int i = 0; i < maxSpawnerDropFixes; i++) {
+            PendingSpawnerDropFix fix = PENDING_SPAWNER_DROP_FIXES.poll();
+            if (fix == null) {
+                break;
+            }
+            fixes.add(fix);
+        }
+
+        Map<ResourceKey<Level>, List<PendingSpawnerDropFix>> fixesByWorld = new HashMap<>();
+        for (PendingSpawnerDropFix fix : fixes) {
+            fixesByWorld.computeIfAbsent(fix.worldKey(), ignored -> new ArrayList<>()).add(fix);
+        }
+
+        for (Map.Entry<ResourceKey<Level>, List<PendingSpawnerDropFix>> entry : fixesByWorld.entrySet()) {
+            ServerLevel world = server.getLevel(entry.getKey());
+            if (world == null) {
+                continue;
+            }
+
+            resolveSpawnerDropFixes(world, entry.getValue());
+        }
+    }
+
+    private static void resolveSpawnerDropFixes(ServerLevel world, List<PendingSpawnerDropFix> fixes) {
+        if (fixes.isEmpty()) {
+            return;
+        }
+
+        AABB searchArea = createDropSearchArea(fixes);
+        List<ItemEntity> plainDrops = new ArrayList<>(world.getEntitiesOfClass(
                 ItemEntity.class,
-                area,
-                entity -> entity.position().distanceToSqr(center) <= 0.25D)) {
-            ItemStack stack = itemEntity.getItem();
+                searchArea,
+                entity -> SpawnerItemUtil.isPlainSpawnerDrop(entity.getItem())));
+        Set<Integer> usedDropIndexes = new HashSet<>();
+        int ambiguousMatches = 0;
+        int fallbackCreates = 0;
 
-            if (SpawnerItemUtil.isSpawnerItemOfType(stack, entityType)) {
-                return true;
+        for (PendingSpawnerDropFix fix : fixes) {
+            MatchResult match = findBestPlainDropMatch(plainDrops, usedDropIndexes, fix.pos());
+            if (match.candidateCount() > 1) {
+                ambiguousMatches++;
             }
 
-            if (SpawnerItemUtil.isPlainSpawnerDrop(stack) && plainDrop == null) {
-                plainDrop = itemEntity;
+            if (match.dropIndex() >= 0) {
+                ItemEntity plainDrop = plainDrops.get(match.dropIndex());
+                ItemStack existing = plainDrop.getItem();
+                plainDrop.setItem(createTypedSpawnerDrop(fix.entityType(), existing.getCount()));
+                usedDropIndexes.add(match.dropIndex());
+                continue;
+            }
+
+            if (fix.attemptsLeft() > 0) {
+                PENDING_SPAWNER_DROP_FIXES.add(fix.nextAttempt());
+                continue;
+            }
+
+            Block.popResource(world, fix.pos(), createTypedSpawnerDrop(fix.entityType(), 1));
+            fallbackCreates++;
+        }
+
+        if (ambiguousMatches > 0 || fallbackCreates > 0) {
+            LOGGER.debug(
+                    "{}Spawner drop resolver in {} processed {} fixes with {} ambiguous matches and {} fallback creates.",
+                    LOG_PREFIX,
+                    world.dimension(),
+                    fixes.size(),
+                    ambiguousMatches,
+                    fallbackCreates
+            );
+        }
+    }
+
+    private static AABB createDropSearchArea(List<PendingSpawnerDropFix> fixes) {
+        BlockPos firstPos = fixes.get(0).pos();
+        AABB area = AABB.ofSize(Vec3.atCenterOf(firstPos), 1.0D, 1.0D, 1.0D);
+
+        for (int index = 1; index < fixes.size(); index++) {
+            area = area.minmax(AABB.ofSize(Vec3.atCenterOf(fixes.get(index).pos()), 1.0D, 1.0D, 1.0D));
+        }
+
+        return area.inflate(SPAWNER_DROP_MATCH_RANGE);
+    }
+
+    private static MatchResult findBestPlainDropMatch(List<ItemEntity> plainDrops, Set<Integer> usedDropIndexes, BlockPos pos) {
+        Vec3 center = Vec3.atCenterOf(pos);
+        int bestIndex = -1;
+        int candidateCount = 0;
+        double closestPlainDropDistance = Double.MAX_VALUE;
+
+        for (int index = 0; index < plainDrops.size(); index++) {
+            if (usedDropIndexes.contains(index)) {
+                continue;
+            }
+
+            ItemEntity itemEntity = plainDrops.get(index);
+            if (!itemEntity.isAlive()) {
+                continue;
+            }
+
+            double distanceToCenter = itemEntity.position().distanceToSqr(center);
+            if (distanceToCenter > SPAWNER_DROP_MATCH_RANGE_SQR) {
+                continue;
+            }
+
+            candidateCount++;
+            if (distanceToCenter < closestPlainDropDistance) {
+                bestIndex = index;
+                closestPlainDropDistance = distanceToCenter;
             }
         }
 
-        if (plainDrop != null) {
-            ItemStack existing = plainDrop.getItem();
-            plainDrop.setItem(typedDrop.copyWithCount(existing.getCount()));
-            return true;
+        return new MatchResult(bestIndex, candidateCount);
+    }
+
+    private static ItemStack createTypedSpawnerDrop(EntityType<?> entityType, int amount) {
+        return SpawnerItemUtil.createSpawnerItem(entityType, amount);
+    }
+
+    public static Optional<ItemStack> getDirectTypedSpawnerDrop(
+            ServerLevel world,
+            BlockPos pos,
+            BlockEntity blockEntity,
+            Player player,
+            ItemStack tool
+    ) {
+        if (!(player instanceof ServerPlayer serverPlayer)) {
+            return Optional.empty();
         }
 
-        if (!allowCreate) {
-            return false;
+        if (!PermissionHelper.canMineSpawner(serverPlayer, config.useLuckPerms)) {
+            return Optional.empty();
         }
 
-        Block.popResource(world, pos, typedDrop);
-        return true;
+        boolean hasSilkTouch = hasSilkTouch(serverPlayer);
+        if (!hasSilkTouch && !PermissionHelper.canBypassSilk(serverPlayer, config)) {
+            return Optional.empty();
+        }
+
+        CachedSpawnerKey key = new CachedSpawnerKey(world, pos);
+        EntityType<?> entityType = BROKEN_SPAWNER_TYPES.get(key);
+        if (entityType == null) {
+            entityType = resolveSpawnerType(world, pos, blockEntity, key, "direct_drop").orElse(null);
+        }
+
+        if (entityType == null) {
+            return Optional.empty();
+        }
+
+        return Optional.of(createTypedSpawnerDrop(entityType, 1));
     }
 
     private static Optional<EntityType<?>> readSpawnerType(Level world, BlockPos pos, BlockEntity blockEntity) {
@@ -388,8 +588,86 @@ public class GetSpawnersMod implements ModInitializer {
             return Optional.empty();
         }
 
+        if (blockEntity instanceof SpawnerBlockEntity spawnerBlockEntity) {
+            var nextSpawnData = ((BaseSpawnerAccessor) spawnerBlockEntity.getSpawner()).getspawners$getNextSpawnData();
+            if (nextSpawnData != null) {
+                Optional<EntityType<?>> nextSpawnType = readEntityTypeFromSpawnData(nextSpawnData);
+                if (nextSpawnType.isPresent()) {
+                    return nextSpawnType;
+                }
+            }
+
+            var displayEntity = spawnerBlockEntity.getSpawner().getOrCreateDisplayEntity(world, pos);
+            if (displayEntity != null) {
+                return Optional.of(displayEntity.getType());
+            }
+        }
+
         var nbt = blockEntity.saveWithFullMetadata(world.registryAccess());
         return SpawnerItemUtil.readEntityTypeFromBlockEntityNbt(nbt);
+    }
+
+    private static Optional<EntityType<?>> readEntityTypeFromSpawnData(net.minecraft.world.level.SpawnData spawnData) {
+        if (spawnData == null) {
+            return Optional.empty();
+        }
+
+        String rawId = spawnData.getEntityToSpawn().getString("id").orElse("");
+        if (rawId.isBlank()) {
+            return Optional.empty();
+        }
+
+        var entityId = net.minecraft.resources.Identifier.tryParse(rawId);
+        if (entityId == null || !BuiltInRegistries.ENTITY_TYPE.containsKey(entityId)) {
+            return Optional.empty();
+        }
+
+        return Optional.of(BuiltInRegistries.ENTITY_TYPE.getValue(entityId));
+    }
+
+    private static Optional<EntityType<?>> resolveSpawnerType(Level world, BlockPos pos, BlockEntity blockEntity, CachedSpawnerKey key, String phase) {
+        EntityType<?> knownType = KNOWN_SPAWNER_TYPES.get(key);
+        EntityType<?> pendingHint = PENDING_PLACEMENT_TYPE_HINTS.get(key);
+        return resolveSpawnerType(world, pos, blockEntity, key, knownType, pendingHint, phase);
+    }
+
+    private static Optional<EntityType<?>> resolveSpawnerType(
+            Level world,
+            BlockPos pos,
+            BlockEntity blockEntity,
+            CachedSpawnerKey key,
+            EntityType<?> knownType,
+            EntityType<?> pendingHint,
+            String phase
+    ) {
+        Optional<EntityType<?>> blockEntityType = readSpawnerType(world, pos, blockEntity);
+        if (blockEntityType.isPresent()) {
+            KNOWN_SPAWNER_TYPES.put(key, blockEntityType.get());
+            return blockEntityType;
+        }
+
+        if (knownType != null) {
+            LOGGER.debug("{}Recovered missing spawner type from cache at {} in {} during {}.", LOG_PREFIX, pos, world.dimension(), phase);
+            return Optional.of(knownType);
+        }
+
+        if (pendingHint != null) {
+            LOGGER.debug("{}Recovered missing spawner type from pending placement hint at {} in {} during {}.", LOG_PREFIX, pos, world.dimension(), phase);
+            return Optional.of(pendingHint);
+        }
+
+        LOGGER.debug("{}Could not resolve spawner type at {} in {} during {}. Skipping typed spawner conversion for this break.", LOG_PREFIX, pos, world.dimension(), phase);
+        return Optional.empty();
+    }
+
+    private static void cachePendingPlacementHints(Level world, BlockPos primaryPos, BlockPos secondaryPos, EntityType<?> entityType) {
+        PENDING_PLACEMENT_TYPE_HINTS.put(new CachedSpawnerKey(world, primaryPos), entityType);
+        PENDING_PLACEMENT_TYPE_HINTS.put(new CachedSpawnerKey(world, secondaryPos), entityType);
+    }
+
+    private static void clearPendingPlacementHints(PendingPlacement pending) {
+        PENDING_PLACEMENT_TYPE_HINTS.remove(new CachedSpawnerKey(pending.worldKey(), pending.primaryPos()));
+        PENDING_PLACEMENT_TYPE_HINTS.remove(new CachedSpawnerKey(pending.worldKey(), pending.secondaryPos()));
     }
 
     private static boolean hasSilkTouch(ServerPlayer player) {
@@ -409,9 +687,9 @@ public class GetSpawnersMod implements ModInitializer {
         }
     }
 
-    private record PendingPlacement(ResourceKey<Level> worldKey, BlockPos pos, EntityType<?> entityType, int attemptsLeft) {
+    private record PendingPlacement(ResourceKey<Level> worldKey, BlockPos primaryPos, BlockPos secondaryPos, EntityType<?> entityType, int attemptsLeft) {
         private PendingPlacement nextAttempt() {
-            return new PendingPlacement(worldKey, pos, entityType, attemptsLeft - 1);
+            return new PendingPlacement(worldKey, primaryPos, secondaryPos, entityType, attemptsLeft - 1);
         }
     }
 
@@ -419,6 +697,9 @@ public class GetSpawnersMod implements ModInitializer {
         private PendingSpawnerDropFix nextAttempt() {
             return new PendingSpawnerDropFix(worldKey, pos, entityType, attemptsLeft - 1);
         }
+    }
+
+    private record MatchResult(int dropIndex, int candidateCount) {
     }
 
 }

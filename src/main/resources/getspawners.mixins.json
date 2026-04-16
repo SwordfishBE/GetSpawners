@@ -3,6 +3,9 @@
   "package": "net.getspawners.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
+    "BaseSpawnerAccessor",
+    "BlockDropResourcesMixin",
+    "BlockInvoker",
     "SpawnerBlockMixin"
   ],
   "injectors": {

@@ -19,7 +19,7 @@ public class SpawnerBlockMixin {
     )
     private void getspawners$suppressSpawnerExperience(SpawnerBlock instance, ServerLevel level, BlockPos pos, int amount) {
         if (!GetSpawnersMod.shouldSuppressExperience(level, pos)) {
-            BlockInvoker.getspawners$callPopExperience(level, pos, amount);
+            ((BlockInvoker) instance).getspawners$callPopExperience(level, pos, amount);
         }
     }
 }
