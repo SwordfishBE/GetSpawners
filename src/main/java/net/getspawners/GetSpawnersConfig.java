@@ -2,7 +2,6 @@ package net.getspawners;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonParseException;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -40,11 +39,6 @@ public final class GetSpawnersConfig {
             if (config == null) {
                 config = new GetSpawnersConfig();
             }
-            config.save();
-            return config;
-        } catch (JsonParseException exception) {
-            GetSpawnersMod.LOGGER.error("{}Failed to parse config. Restoring defaults at {}.", GetSpawnersMod.LOG_PREFIX, CONFIG_PATH, exception);
-            GetSpawnersConfig config = new GetSpawnersConfig();
             config.save();
             return config;
         } catch (IOException exception) {
