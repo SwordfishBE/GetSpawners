@@ -170,13 +170,7 @@ public class GetSpawnersMod implements ModInitializer {
                                             .then(argument("amount", IntegerArgumentType.integer(1, 64))
                                                     .executes(context -> executeGive(context, IntegerArgumentType.getInteger(context, "amount")))))))
                     .then(literal("set")
-                            .requires(source -> PermissionHelper.canUseAnyCommand(
-                                    source,
-                                    config,
-                                    config.allowEveryoneSetCommand,
-                                    "getspawner.set",
-                                    "getspawners.set"
-                            ))
+                            .requires(source -> PermissionHelper.canUseCommand(source, "getspawners.set", config, config.allowEveryoneSetCommand))
                             .then(argument("type", StringArgumentType.word())
                                     .suggests(GetSpawnersMod::suggestTypes)
                                     .executes(GetSpawnersMod::executeSet)));
