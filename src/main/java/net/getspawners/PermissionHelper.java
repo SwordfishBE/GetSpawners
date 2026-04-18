@@ -26,9 +26,14 @@ public final class PermissionHelper {
         return config.useLuckPerms && luckPermsActive;
     }
 
-    public static boolean canUseCommand(CommandSourceStack source, String permission, boolean useLuckPerms) {
-        if (!useLuckPerms || !luckPermsActive) {
-            return Commands.LEVEL_ADMINS.check(source.permissions());
+    public static boolean canUseCommand(
+            CommandSourceStack source,
+            String permission,
+            GetSpawnersConfig config,
+            boolean allowEveryoneWhenConfigMode
+    ) {
+        if (!isUsingLuckPerms(config)) {
+            return allowEveryoneWhenConfigMode || Commands.LEVEL_ADMINS.check(source.permissions());
         }
 
         ServerPlayer player = source.getPlayer();
@@ -37,6 +42,31 @@ public final class PermissionHelper {
         }
 
         return Permissions.check(player, permission, Commands.LEVEL_ADMINS.check(source.permissions()));
+    }
+
+    public static boolean canUseAnyCommand(
+            CommandSourceStack source,
+            GetSpawnersConfig config,
+            boolean allowEveryoneWhenConfigMode,
+            String... permissions
+    ) {
+        if (!isUsingLuckPerms(config)) {
+            return allowEveryoneWhenConfigMode || Commands.LEVEL_ADMINS.check(source.permissions());
+        }
+
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
+            return true;
+        }
+
+        boolean opFallback = Commands.LEVEL_ADMINS.check(source.permissions());
+        for (String permission : permissions) {
+            if (Permissions.check(player, permission, opFallback)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static boolean canMineSpawner(ServerPlayer player, boolean useLuckPerms) {

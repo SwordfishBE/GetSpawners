@@ -33,6 +33,24 @@ final class GetSpawnersClothConfigScreen {
                 .setSaveConsumer(value -> config.noSilkTouchSpawners = value)
                 .build());
 
+        general.addEntry(entries.startBooleanToggle(Component.literal("Allow Everyone /gs give"), config.allowEveryoneGiveCommand)
+                .setDefaultValue(false)
+                .setTooltip(Component.literal("When enabled and LuckPerms is disabled or unavailable, everyone can use /gs give."))
+                .setSaveConsumer(value -> config.allowEveryoneGiveCommand = value)
+                .build());
+
+        general.addEntry(entries.startBooleanToggle(Component.literal("Allow Everyone /gs types"), config.allowEveryoneTypesCommand)
+                .setDefaultValue(false)
+                .setTooltip(Component.literal("When enabled and LuckPerms is disabled or unavailable, everyone can use /gs types."))
+                .setSaveConsumer(value -> config.allowEveryoneTypesCommand = value)
+                .build());
+
+        general.addEntry(entries.startBooleanToggle(Component.literal("Allow Everyone /gs set"), config.allowEveryoneSetCommand)
+                .setDefaultValue(false)
+                .setTooltip(Component.literal("When enabled and LuckPerms is disabled or unavailable, everyone can use /gs set."))
+                .setSaveConsumer(value -> config.allowEveryoneSetCommand = value)
+                .build());
+
         return builder.build();
     }
 }

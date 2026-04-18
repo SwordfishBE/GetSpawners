@@ -19,7 +19,17 @@ public final class SpawnerItemUtil {
 
     public static ItemStack createSpawnerItem(EntityType<?> entityType, int amount) {
         ItemStack stack = new ItemStack(Items.SPAWNER, amount);
+        applySpawnerType(stack, entityType);
+        return stack;
+    }
 
+    public static ItemStack withSpawnerItemType(ItemStack originalStack, EntityType<?> entityType) {
+        ItemStack updated = originalStack.copy();
+        applySpawnerType(updated, entityType);
+        return updated;
+    }
+
+    private static void applySpawnerType(ItemStack stack, EntityType<?> entityType) {
         CompoundTag blockEntityData = new CompoundTag();
         blockEntityData.put("SpawnData", createSpawnData(entityType));
 
@@ -31,7 +41,6 @@ public final class SpawnerItemUtil {
         blockEntityData.put("SpawnPotentials", spawnPotentials);
 
         stack.set(DataComponents.BLOCK_ENTITY_DATA, TypedEntityData.of(BlockEntityType.MOB_SPAWNER, blockEntityData));
-        return stack;
     }
 
     public static Optional<EntityType<?>> readEntityTypeFromSpawnerItem(ItemStack stack) {

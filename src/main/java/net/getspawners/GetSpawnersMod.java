@@ -26,6 +26,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -116,7 +117,14 @@ public class GetSpawnersMod implements ModInitializer {
         if (PermissionHelper.isUsingLuckPerms(config)) {
             LOGGER.debug("{}LuckPerms permission mode enabled.", LOG_PREFIX);
         } else {
-            LOGGER.debug("{}Non-LuckPerms permission mode enabled. noSilkTouchSpawners={}", LOG_PREFIX, config.noSilkTouchSpawners);
+            LOGGER.debug(
+                    "{}Non-LuckPerms permission mode enabled. noSilkTouchSpawners={}, allowEveryoneGiveCommand={}, allowEveryoneTypesCommand={}, allowEveryoneSetCommand={}",
+                    LOG_PREFIX,
+                    config.noSilkTouchSpawners,
+                    config.allowEveryoneGiveCommand,
+                    config.allowEveryoneTypesCommand,
+                    config.allowEveryoneSetCommand
+            );
         }
     }
 
@@ -128,8 +136,15 @@ public class GetSpawnersMod implements ModInitializer {
         config = editedConfig.copy();
         config.save();
         PermissionHelper.refreshState(config);
-        LOGGER.debug("{}Config updated from client config screen. useLuckPerms={}, noSilkTouchSpawners={}",
-                LOG_PREFIX, config.useLuckPerms, config.noSilkTouchSpawners);
+        LOGGER.debug(
+                "{}Config updated from client config screen. useLuckPerms={}, noSilkTouchSpawners={}, allowEveryoneGiveCommand={}, allowEveryoneTypesCommand={}, allowEveryoneSetCommand={}",
+                LOG_PREFIX,
+                config.useLuckPerms,
+                config.noSilkTouchSpawners,
+                config.allowEveryoneGiveCommand,
+                config.allowEveryoneTypesCommand,
+                config.allowEveryoneSetCommand
+        );
         logLuckPermsMode();
     }
 
@@ -141,19 +156,30 @@ public class GetSpawnersMod implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             var root = literal("getspawners")
                     .then(literal("types")
-                            .requires(source -> PermissionHelper.canUseCommand(source, "getspawners.types", config.useLuckPerms))
+                            .requires(source -> PermissionHelper.canUseCommand(source, "getspawners.types", config, config.allowEveryoneTypesCommand))
                             .executes(GetSpawnersMod::executeTypes))
                     .then(literal("reload")
-                            .requires(source -> PermissionHelper.canUseCommand(source, "getspawners.reload", config.useLuckPerms))
+                            .requires(source -> PermissionHelper.canUseCommand(source, "getspawners.reload", config, false))
                             .executes(GetSpawnersMod::executeReload))
                     .then(literal("give")
-                            .requires(source -> PermissionHelper.canUseCommand(source, "getspawners.give", config.useLuckPerms))
+                            .requires(source -> PermissionHelper.canUseCommand(source, "getspawners.give", config, config.allowEveryoneGiveCommand))
                             .then(argument("player", EntityArgument.player())
                                     .then(argument("type", StringArgumentType.word())
                                             .suggests(GetSpawnersMod::suggestTypes)
                                             .executes(context -> executeGive(context, 1))
                                             .then(argument("amount", IntegerArgumentType.integer(1, 64))
-                                                    .executes(context -> executeGive(context, IntegerArgumentType.getInteger(context, "amount")))))));
+                                                    .executes(context -> executeGive(context, IntegerArgumentType.getInteger(context, "amount")))))))
+                    .then(literal("set")
+                            .requires(source -> PermissionHelper.canUseAnyCommand(
+                                    source,
+                                    config,
+                                    config.allowEveryoneSetCommand,
+                                    "getspawner.set",
+                                    "getspawners.set"
+                            ))
+                            .then(argument("type", StringArgumentType.word())
+                                    .suggests(GetSpawnersMod::suggestTypes)
+                                    .executes(GetSpawnersMod::executeSet)));
 
             var rootNode = dispatcher.register(root);
             dispatcher.register(literal("gs").redirect(rootNode));
@@ -196,6 +222,32 @@ public class GetSpawnersMod implements ModInitializer {
         String resolvedType = BuiltInRegistries.ENTITY_TYPE.getKey(type.get()).toString();
         context.getSource().sendSuccess(() -> prefixed("Gave " + amount + " spawner(s) of type " + resolvedType + " to " + target.getName().getString() + "."), true);
         target.sendSystemMessage(prefixed("You received " + amount + " spawner(s) of type " + resolvedType + ".").withStyle(ChatFormatting.GREEN));
+        return 1;
+    }
+
+    private static int executeSet(CommandContext<CommandSourceStack> context) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        String typeInput = StringArgumentType.getString(context, "type");
+
+        Optional<EntityType<?>> type = typeRegistry.resolve(typeInput);
+        if (type.isEmpty()) {
+            context.getSource().sendFailure(prefixed("Unknown spawner type: " + typeInput));
+            return 0;
+        }
+
+        ItemStack heldStack = player.getMainHandItem();
+        if (heldStack.isEmpty() || heldStack.getItem() != Items.SPAWNER) {
+            context.getSource().sendFailure(prefixed("Hold a spawner stack in your active slot first."));
+            return 0;
+        }
+
+        ItemStack updatedStack = SpawnerItemUtil.withSpawnerItemType(heldStack, type.get());
+        player.setItemInHand(InteractionHand.MAIN_HAND, updatedStack);
+        player.getInventory().setChanged();
+        player.containerMenu.broadcastChanges();
+
+        String resolvedType = BuiltInRegistries.ENTITY_TYPE.getKey(type.get()).toString();
+        context.getSource().sendSuccess(() -> prefixed("Set the spawner stack in your active slot to type " + resolvedType + "."), false);
         return 1;
     }
 

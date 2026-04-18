@@ -14,6 +14,9 @@ public final class GetSpawnersConfig {
 
     public boolean useLuckPerms = false;
     public boolean noSilkTouchSpawners = false;
+    public boolean allowEveryoneGiveCommand = false;
+    public boolean allowEveryoneTypesCommand = false;
+    public boolean allowEveryoneSetCommand = false;
 
     private static final Path CONFIG_PATH = FabricLoader.getInstance()
             .getConfigDir()
@@ -23,6 +26,9 @@ public final class GetSpawnersConfig {
         GetSpawnersConfig copy = new GetSpawnersConfig();
         copy.useLuckPerms = useLuckPerms;
         copy.noSilkTouchSpawners = noSilkTouchSpawners;
+        copy.allowEveryoneGiveCommand = allowEveryoneGiveCommand;
+        copy.allowEveryoneTypesCommand = allowEveryoneTypesCommand;
+        copy.allowEveryoneSetCommand = allowEveryoneSetCommand;
         return copy;
     }
 
@@ -70,7 +76,19 @@ public final class GetSpawnersConfig {
 
         appendComment(builder, "When true, everyone can bypass the Silk Touch requirement and still collect spawners.");
         appendComment(builder, "When false, mining a spawner without Silk Touch uses normal vanilla behavior.");
-        appendProperty(builder, "noSilkTouchSpawners", config.noSilkTouchSpawners, false);
+        appendProperty(builder, "noSilkTouchSpawners", config.noSilkTouchSpawners, true);
+
+        appendComment(builder, "When true and LuckPerms is disabled or unavailable, everyone can use /gs give.");
+        appendComment(builder, "When false, /gs give stays OP-only in config mode.");
+        appendProperty(builder, "allowEveryoneGiveCommand", config.allowEveryoneGiveCommand, true);
+
+        appendComment(builder, "When true and LuckPerms is disabled or unavailable, everyone can use /gs types.");
+        appendComment(builder, "When false, /gs types stays OP-only in config mode.");
+        appendProperty(builder, "allowEveryoneTypesCommand", config.allowEveryoneTypesCommand, true);
+
+        appendComment(builder, "When true and LuckPerms is disabled or unavailable, everyone can use /gs set.");
+        appendComment(builder, "When false, /gs set stays OP-only in config mode.");
+        appendProperty(builder, "allowEveryoneSetCommand", config.allowEveryoneSetCommand, false);
         builder.append("}\n");
         return builder.toString();
     }
