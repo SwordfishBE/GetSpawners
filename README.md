@@ -57,7 +57,7 @@ Behavior:
   - `getspawners.nosilk` controls the Silk Touch bypass.
   - `getspawners.give` controls `/gs give`.
   - `getspawners.types` controls `/gs types`.
-  - `getspawner.set` controls `/gs set`.
+  - `getspawners.set` controls `/gs set`.
 - If LuckPerms is not installed, GetSpawners automatically falls back to the non-LuckPerms config behavior and logs a warning.
 
 Example config:
@@ -125,7 +125,7 @@ Without active LuckPerms permission checks, `/gs give`, `/gs types`, and `/gs se
 | `getspawners.give` | Access to `/gs give` |
 | `getspawners.mine` | Mine and place spawners |
 | `getspawners.nosilk` | Bypass Silk Touch requirement |
-| `getspawner.set` | Access to `/gs set` |
+| `getspawners.set` | Access to `/gs set` |
 | `getspawners.types` | Access to `/gs types` |
 | `getspawners.reload` | Access to `/gs reload` |
 
@@ -139,7 +139,7 @@ If `useLuckPerms` is enabled, assign nodes like this:
 /lp user <player> permission set getspawners.mine true
 /lp user <player> permission set getspawners.types true
 /lp user <player> permission set getspawners.give true
-/lp user <player> permission set getspawner.set true
+/lp user <player> permission set getspawners.set true
 /lp user <player> permission set getspawners.nosilk true
 /lp user <player> permission set getspawners.reload true
 ```
