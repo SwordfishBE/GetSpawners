@@ -14,6 +14,10 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import java.util.Optional;
 
 public final class SpawnerItemUtil {
+    private static final Identifier MOB_SPAWNER_BLOCK_ENTITY_ID = Identifier.withDefaultNamespace("mob_spawner");
+    private static final BlockEntityType<?> MOB_SPAWNER_BLOCK_ENTITY_TYPE =
+            BuiltInRegistries.BLOCK_ENTITY_TYPE.getValue(MOB_SPAWNER_BLOCK_ENTITY_ID);
+
     private SpawnerItemUtil() {
     }
 
@@ -40,7 +44,7 @@ public final class SpawnerItemUtil {
         spawnPotentials.add(weightedEntry);
         blockEntityData.put("SpawnPotentials", spawnPotentials);
 
-        stack.set(DataComponents.BLOCK_ENTITY_DATA, TypedEntityData.of(BlockEntityType.MOB_SPAWNER, blockEntityData));
+        stack.set(DataComponents.BLOCK_ENTITY_DATA, TypedEntityData.of(MOB_SPAWNER_BLOCK_ENTITY_TYPE, blockEntityData));
     }
 
     public static Optional<EntityType<?>> readEntityTypeFromSpawnerItem(ItemStack stack) {
@@ -49,7 +53,7 @@ public final class SpawnerItemUtil {
             return Optional.empty();
         }
 
-        if (blockEntityData.type() != BlockEntityType.MOB_SPAWNER) {
+        if (blockEntityData.type() != MOB_SPAWNER_BLOCK_ENTITY_TYPE) {
             return Optional.empty();
         }
 
