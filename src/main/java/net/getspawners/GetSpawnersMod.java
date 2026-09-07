@@ -26,6 +26,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.EntityType;
@@ -210,7 +211,7 @@ public class GetSpawnersMod implements ModInitializer {
         ItemStack stack = SpawnerItemUtil.createSpawnerItem(type.get(), amount);
         boolean inserted = target.getInventory().add(stack);
         if (!inserted && !stack.isEmpty()) {
-            target.drop(stack, false, false);
+            target.drop(stack, false, Prediction.SERVER_ONLY);
         }
 
         String resolvedType = BuiltInRegistries.ENTITY_TYPE.getKey(type.get()).toString();
