@@ -28,9 +28,9 @@
     "getspawners.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.19.3",
+    "fabricloader": ">=0.19.5",
     "fabric-permissions-api-v0": "*",
-    "minecraft": ">=26.3-pre.1 <26.4-",
+    "minecraft": ">=26.3 <26.4-",
     "java": ">=25",
     "fabric-api": "*"
   },
