@@ -1,0 +1,17 @@
+# Gradle and generated files
+.gradle/
+build/
+out/
+run/
+
+# Local workspace files
+.idea/
+.vscode/
+*.iml
+.tmp-*/
+.codex/
+AGENTS.md
+
+# Operating system files
+.DS_Store
+Thumbs.db

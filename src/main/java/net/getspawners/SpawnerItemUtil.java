@@ -34,7 +34,9 @@ public final class SpawnerItemUtil {
     }
 
     private static void applySpawnerType(ItemStack stack, EntityType<?> entityType) {
-        CompoundTag blockEntityData = new CompoundTag();
+        TypedEntityData<?> existing = stack.get(DataComponents.BLOCK_ENTITY_DATA);
+        CompoundTag blockEntityData = existing != null && existing.type() == MOB_SPAWNER_BLOCK_ENTITY_TYPE
+                ? existing.copyTagWithoutId() : new CompoundTag();
         blockEntityData.put("SpawnData", createSpawnData(entityType));
 
         ListTag spawnPotentials = new ListTag();

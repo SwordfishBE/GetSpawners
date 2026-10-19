@@ -22,9 +22,6 @@ public final class ModrinthUpdateChecker {
     private static final String PROJECT_ID = "L330h09U";
     private static final String MINECRAFT_MOD_ID = "minecraft";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
-    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-            .connectTimeout(REQUEST_TIMEOUT)
-            .build();
     private static final AtomicBoolean CHECK_STARTED = new AtomicBoolean(false);
 
     private ModrinthUpdateChecker() {
@@ -49,8 +46,8 @@ public final class ModrinthUpdateChecker {
                 .GET()
                 .build();
 
-        try {
-            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+        try (HttpClient client = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build()) {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 GetSpawnersMod.LOGGER.debug("{}Update check returned HTTP {}.", GetSpawnersMod.LOG_PREFIX, response.statusCode());
                 return;
@@ -68,7 +65,7 @@ public final class ModrinthUpdateChecker {
                 GetSpawnersMod.LOGGER.info("{}New version available: {} (current: {})",
                         GetSpawnersMod.LOG_PREFIX, newestVersion, currentVersion);
             }
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException | InterruptedException | RuntimeException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
@@ -84,7 +81,6 @@ public final class ModrinthUpdateChecker {
 
         JsonArray versions = root.getAsJsonArray();
         VersionCandidate newestCompatible = null;
-        VersionCandidate newestRelease = null;
 
         for (JsonElement versionElement : versions) {
             if (!versionElement.isJsonObject()) {
@@ -104,10 +100,6 @@ public final class ModrinthUpdateChecker {
             }
 
             VersionCandidate candidate = new VersionCandidate(versionNumber, publishedAt);
-            if (isNewerCandidate(candidate, newestRelease)) {
-                newestRelease = candidate;
-            }
-
             if (jsonArrayContains(versionObject, "loaders", "fabric")
                     && jsonArrayContains(versionObject, "game_versions", minecraftVersion)
                     && isNewerCandidate(candidate, newestCompatible)) {
@@ -115,12 +107,12 @@ public final class ModrinthUpdateChecker {
             }
         }
 
-        return Optional.ofNullable(newestCompatible != null ? newestCompatible : newestRelease);
+        return Optional.ofNullable(newestCompatible);
     }
 
     private static String getString(JsonObject object, String key) {
         JsonElement value = object.get(key);
-        if (value == null || value.isJsonNull()) {
+        if (value == null || !value.isJsonPrimitive()) {
             return null;
         }
 

@@ -7,8 +7,8 @@ import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
 
 public final class PermissionHelper {
-    private static boolean luckPermsInstalled;
-    private static boolean luckPermsActive;
+    private static volatile boolean luckPermsInstalled;
+    private static volatile boolean luckPermsActive;
 
     private PermissionHelper() {
     }

@@ -5,6 +5,7 @@
   "mixins": [
     "BaseSpawnerAccessor",
     "BlockDropResourcesMixin",
+    "BlockItemMixin",
     "BlockInvoker",
     "SpawnerBlockMixin"
   ],

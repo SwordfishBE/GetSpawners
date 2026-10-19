@@ -65,7 +65,8 @@ public final class SpawnerTypeRegistry {
 
         for (Map.Entry<String, EntityType<?>> entry : byKey.entrySet()) {
             Identifier entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entry.getValue());
-            if (entityId != null && "minecraft".equals(entityId.getNamespace()) && entityId.getPath().equals(entry.getKey())) {
+            if (entityId != null && ("minecraft".equals(entityId.getNamespace())
+                    ? entityId.getPath().equals(entry.getKey()) : entityId.toString().equals(entry.getKey()))) {
                 keys.add(entry.getKey());
             }
         }
