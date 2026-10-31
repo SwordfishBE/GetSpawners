@@ -3,7 +3,8 @@
   "id": "getspawners-test",
   "version": "1.0.0",
   "environment": "server",
+  "mixins": ["getspawners-test.mixins.json"],
   "entrypoints": {
-    "fabric-gametest": ["net.getspawners.SpawnerRegressionTests", "net.getspawners.BeaconMiningTests"]
+    "fabric-gametest": ["net.getspawners.SpawnerRegressionTests", "net.getspawners.BeaconMiningTests", "net.getspawners.OptimizationCompatibilityTests"]
   }
 }

@@ -37,6 +37,10 @@ fabricApi {
 }
 
 dependencies {
+    // Optional local optimization mod for compatibility tests; never bundled in the release JAR.
+    if (providers.gradleProperty('compatModJar').isPresent()) {
+        localRuntime files(providers.gradleProperty('compatModJar').get())
+    }
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
@@ -64,6 +68,9 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
     withSourcesJar()

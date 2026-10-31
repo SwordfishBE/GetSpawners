@@ -70,7 +70,7 @@ public class SpawnerRegressionTests {
         var drops = Block.getDrops(state, world, pos, spawner, player, toolBeforeBreak);
         helper.assertTrue(drops.size() == 1 && SpawnerItemUtil.isSpawnerItemOfType(drops.getFirst(), EntityTypes.SKELETON),
                 "Last tool hit must produce exactly one correctly typed spawner");
-        state.spawnAfterBreak(world, pos, toolBeforeBreak, true);
+        state.spawnAfterBreak(world, pos, toolBeforeBreak, true, player);
         helper.assertEntityNotPresent(EntityTypes.EXPERIENCE_ORB);
         PlayerBlockBreakEvents.AFTER.invoker().afterBlockBreak(world, player, pos, state, spawner);
         helper.assertFalse(GetSpawnersMod.shouldSuppressExperience(world, pos), "XP state must be consumed");
@@ -113,7 +113,7 @@ public class SpawnerRegressionTests {
         player.setItemInHand(InteractionHand.MAIN_HAND, tool);
         var drops = Block.getDrops(state, world, pos, world.getBlockEntity(pos), player, tool);
         helper.assertTrue(drops.stream().noneMatch(stack -> stack.is(Items.SPAWNER)), "Ordinary mining must not drop a spawner");
-        state.spawnAfterBreak(world, pos, tool, true);
+        state.spawnAfterBreak(world, pos, tool, true, player);
         helper.assertEntityPresent(EntityTypes.EXPERIENCE_ORB);
         helper.succeed();
     }
@@ -156,6 +156,69 @@ public class SpawnerRegressionTests {
 
     private static ServerPlayer player(GameTestHelper helper) {
         return (ServerPlayer) helper.makeMockServerPlayer(GameType.SURVIVAL);
+    }
+
+    @GameTest
+    public void allSpawnEggTypesRoundTrip(GameTestHelper helper) {
+        var registry = SpawnerTypeRegistry.create();
+        int tested = 0;
+        for (var item : net.minecraft.core.registries.BuiltInRegistries.ITEM) {
+            if (item instanceof net.minecraft.world.item.SpawnEggItem) {
+                var type = net.minecraft.world.item.SpawnEggItem.getType(new ItemStack(item));
+                var id = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(type);
+                helper.assertTrue(registry.resolve(id.toString()).filter(found -> found == type).isPresent(),
+                        "Spawn egg type must be available in commands: " + id);
+                helper.assertTrue(registry.keys().contains(id.getPath()), "Spawn egg type must be listed: " + id);
+                helper.assertTrue(SpawnerItemUtil.isSpawnerItemOfType(SpawnerItemUtil.createSpawnerItem(type, 1), type),
+                        "Spawn egg type must survive the spawner item roundtrip: " + id);
+                tested++;
+            }
+        }
+        GetSpawnersMod.LOGGER.info("Snapshot spawn egg regression passed for {} entity types", tested);
+        helper.succeed();
+    }
+
+    @GameTest
+    public void frostbitePlacementAndMining(GameTestHelper helper) {
+        var id = net.minecraft.resources.Identifier.withDefaultNamespace("frostbite");
+        var type = SpawnerTypeRegistry.create().resolve(id.toString()).orElseThrow();
+        var player = player(helper);
+        place(helper, player, SpawnerItemUtil.createSpawnerItem(type, 1));
+        assertType(helper, type);
+        var tool = silkTool(helper);
+        player.setItemInHand(InteractionHand.MAIN_HAND, tool);
+        var world = helper.getLevel();
+        var pos = helper.absolutePos(POS);
+        var drops = Block.getDrops(world.getBlockState(pos), world, pos, world.getBlockEntity(pos), player, tool);
+        helper.assertTrue(drops.size() == 1 && SpawnerItemUtil.isSpawnerItemOfType(drops.getFirst(), type),
+                "Frostbite spawner must keep its type when placed and mined");
+        helper.succeed();
+    }
+
+    @GameTest
+    public void minecraftVersionBounds(GameTestHelper helper) throws Exception {
+        var metadata = net.fabricmc.loader.api.FabricLoader.getInstance().getModContainer(GetSpawnersMod.MOD_ID).orElseThrow().getMetadata();
+        var dependency = metadata.getDependencies().stream().filter(dep -> dep.getModId().equals("minecraft")).findFirst().orElseThrow();
+        for (String id : new String[]{"26.4-snapshot-6", "26.4-snapshot-7", "26.4-snapshot-10", "26.4-pre-1", "26.4-rc-1", "26.4"}) {
+            helper.assertTrue(dependency.matches(normalizeMinecraftVersion(id)), "Supported Minecraft version rejected: " + id);
+        }
+        for (String id : new String[]{"26.3", "26.4-snapshot-1", "26.4-snapshot-5", "26.4.1-pre-1", "26.4.1", "26.5-snapshot-1", "26.5", "27.1"}) {
+            helper.assertFalse(dependency.matches(normalizeMinecraftVersion(id)), "Unsupported Minecraft version accepted: " + id);
+        }
+        helper.succeed();
+    }
+
+    private static net.fabricmc.loader.api.Version normalizeMinecraftVersion(String id) throws Exception {
+        return net.fabricmc.loader.api.Version.parse(net.fabricmc.loader.impl.game.minecraft.McVersionLookup.normalizeVersion(
+                id, net.fabricmc.loader.impl.game.minecraft.McVersionLookup.getRelease(id)));
+    }
+
+    @GameTest
+    public void updateCheckerUsesRawSnapshotId(GameTestHelper helper) throws Exception {
+        var method = ModrinthUpdateChecker.class.getDeclaredMethod("currentMinecraftVersion");
+        method.setAccessible(true);
+        helper.assertTrue("26.4-snapshot-6".equals(method.invoke(null)), "Modrinth requires the raw Minecraft snapshot ID");
+        helper.succeed();
     }
 
     @GameTest

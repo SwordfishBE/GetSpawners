@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.Version;
 import net.fabricmc.loader.api.VersionParsingException;
+import net.minecraft.SharedConstants;
 
 import java.io.IOException;
 import java.net.URI;
@@ -20,7 +21,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ModrinthUpdateChecker {
     private static final String PROJECT_ID = "L330h09U";
-    private static final String MINECRAFT_MOD_ID = "minecraft";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     private static final AtomicBoolean CHECK_STARTED = new AtomicBoolean(false);
 
@@ -172,10 +172,7 @@ public final class ModrinthUpdateChecker {
     }
 
     private static String currentMinecraftVersion() {
-        return FabricLoader.getInstance()
-                .getModContainer(MINECRAFT_MOD_ID)
-                .map(container -> container.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        return SharedConstants.getCurrentVersion().id();
     }
 
     private static boolean isNewerVersion(String candidate, String current) {
